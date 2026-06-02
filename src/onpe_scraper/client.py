@@ -8,7 +8,7 @@ from typing import Any
 
 from curl_cffi import requests as curl_requests
 
-from .models import AgrupacionData, MesaData, MesaResult, VotoData
+from .models import AgrupacionData, MesaData, MesaResult, UbicacionData, VotoData
 
 
 BASE_URL = "https://resultadoelectoral.onpe.gob.pe/presentacion-backend"
@@ -172,13 +172,54 @@ class OnpeClient:
                 codes.append(code)
         return codes
 
+    def get_ubicaciones(self, id_eleccion: int) -> list[UbicacionData]:
+        """
+        Fetch the full geographic hierarchy (Peru + exterior) from dep-prov-distritos.
+
+        Peru   (ubigeo prefix 01-25): nombre = DEPARTAMENTO \\ PROVINCIA \\ DISTRITO
+        Exterior (prefix 91-95):      nombre = CONTINENTE \\ PAIS \\ CIUDAD
+        Nacional (prefix 00):         skipped (aggregate placeholder).
+        """
+        data = self._get_data("/ubigeos/dep-prov-distritos", params={"idEleccion": id_eleccion})
+        if not isinstance(data, list):
+            raise ValueError("dep-prov-distritos: se esperaba lista")
+
+        seen: set[str] = set()
+        ubicaciones: list[UbicacionData] = []
+
+        for row in data:
+            ubigeo = str(row.get("ubigeo") or "").zfill(6)
+            if not ubigeo or ubigeo == "000000" or ubigeo in seen:
+                continue
+            seen.add(ubigeo)
+
+            parts = [p.strip() for p in str(row.get("nombre") or "").split("\\")]
+            while len(parts) < 3:
+                parts.append("")
+
+            prefix = ubigeo[:2]
+            if prefix in ("91", "92", "93", "94", "95"):
+                ubicaciones.append(UbicacionData(
+                    ubigeo=ubigeo, ambito="exterior",
+                    departamento="", provincia="", distrito="",
+                    continente=parts[0], pais=parts[1], ciudad=parts[2],
+                ))
+            else:
+                ubicaciones.append(UbicacionData(
+                    ubigeo=ubigeo, ambito="peru",
+                    departamento=parts[0], provincia=parts[1], distrito=parts[2],
+                    continente="", pais="", ciudad="",
+                ))
+
+        return ubicaciones
+
     @staticmethod
     def _parse_acta(acta: dict[str, Any], codigo_mesa: str) -> MesaResult:
         id_eleccion = int(acta.get("idEleccion") or 0)
         mesa_data = MesaData(
             codigo_mesa=codigo_mesa,
             id_eleccion=id_eleccion,
-            id_ubigeo=int(acta.get("idUbigeo") or 0),
+            id_ubigeo=str(int(acta.get("idUbigeo") or 0)).zfill(6),
             nombre_local_votacion=str(acta.get("nombreLocalVotacion") or ""),
             codigo_local_votacion=str(acta.get("codigoLocalVotacion") or ""),
             id_ambito_geografico=int(acta.get("idAmbitoGeografico") or 0),

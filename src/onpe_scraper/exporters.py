@@ -6,7 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from .models import MesaResult
+from .models import LocalData, MesaResult, UbicacionData
 
 
 def ensure_output_dir(path: str | Path) -> Path:
@@ -249,3 +249,84 @@ def load_pending_mesas_txt(input_file: str | Path) -> list[str]:
                 seen.add(code)
                 codes.append(code)
     return codes
+
+
+# ------------------------------------------------------------------ #
+# Geographic tables                                                    #
+# ------------------------------------------------------------------ #
+
+_UBICACIONES_FIELDS = [
+    "ubigeo",
+    "ambito",
+    "departamento",
+    "provincia",
+    "distrito",
+    "continente",
+    "pais",
+    "ciudad",
+]
+
+_LOCALES_FIELDS = [
+    "codigo_local_votacion",
+    "nombre_local_votacion",
+    "ubigeo",
+    "lat",
+    "lon",
+]
+
+
+def upsert_ubicaciones_txt(ubicaciones: list[UbicacionData], output_file: str | Path) -> Path:
+    """
+    Upsert geographic hierarchy rows.
+    Key: ubigeo. Preserves any existing lat/lon enrichment on reload.
+    """
+    output_path = Path(output_file)
+    store = _load_txt(output_path, ["ubigeo"])
+
+    for u in ubicaciones:
+        key = (u.ubigeo,)
+        existing = store.get(key, {})
+        store[key] = {
+            "ubigeo": u.ubigeo,
+            "ambito": u.ambito,
+            "departamento": u.departamento,
+            "provincia": u.provincia,
+            "distrito": u.distrito,
+            "continente": u.continente,
+            "pais": u.pais,
+            "ciudad": u.ciudad,
+        }
+        # Preserve lat/lon if already enriched (enrich_geo.py may have written them)
+        for col in ("lat", "lon"):
+            if col not in _UBICACIONES_FIELDS and existing.get(col, ""):
+                store[key][col] = existing[col]
+
+    _write_txt(output_path, _UBICACIONES_FIELDS, store)
+    return output_path
+
+
+def upsert_locales_txt(results: list[MesaResult], output_file: str | Path) -> Path:
+    """
+    Upsert voting-local rows derived from mesa acta data.
+    Key: codigo_local_votacion. Preserves lat/lon once enriched by enrich_geo.py.
+    """
+    output_path = Path(output_file)
+    store = _load_txt(output_path, ["codigo_local_votacion"])
+
+    for result in results:
+        md = result.mesa_data
+        if md is None:
+            continue
+        key = (md.codigo_local_votacion,)
+        existing = store.get(key, {})
+        store[key] = {
+            "codigo_local_votacion": md.codigo_local_votacion,
+            "nombre_local_votacion": md.nombre_local_votacion,
+            "ubigeo": md.id_ubigeo,
+            "lat": existing.get("lat", ""),
+            "lon": existing.get("lon", ""),
+        }
+
+    _write_txt(output_path, _LOCALES_FIELDS, store)
+    return output_path
+

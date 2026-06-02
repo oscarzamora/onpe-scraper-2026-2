@@ -24,7 +24,7 @@ class VotoData:
 class MesaData:
     codigo_mesa: str
     id_eleccion: int
-    id_ubigeo: int
+    id_ubigeo: str        # 6-char zero-padded, FK → UbicacionData.ubigeo
     nombre_local_votacion: str
     codigo_local_votacion: str
     id_ambito_geografico: int
@@ -43,3 +43,24 @@ class MesaResult:
     mesa_data: MesaData | None
     agrupaciones: list[AgrupacionData]
     votos: list[VotoData]
+
+
+@dataclass(slots=True)
+class UbicacionData:
+    ubigeo: str           # 6-char zero-padded PK
+    ambito: str           # "peru" | "exterior"
+    departamento: str     # Peru only, else ""
+    provincia: str        # Peru only, else ""
+    distrito: str         # Peru only, else ""
+    continente: str       # Exterior only, else ""
+    pais: str             # Exterior only, else ""
+    ciudad: str           # Exterior only, else ""
+
+
+@dataclass(slots=True)
+class LocalData:
+    codigo_local_votacion: str   # PK
+    nombre_local_votacion: str
+    ubigeo: str                  # FK → UbicacionData.ubigeo
+    lat: float | None            # NULL until enriched via Nominatim
+    lon: float | None            # NULL until enriched via Nominatim

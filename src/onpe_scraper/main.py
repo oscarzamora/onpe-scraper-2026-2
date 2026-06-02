@@ -13,7 +13,9 @@ from .exporters import (
     append_candidates_txt,
     load_pending_mesas_txt,
     upsert_agrupaciones_txt,
+    upsert_locales_txt,
     upsert_mesas_data_txt,
+    upsert_ubicaciones_txt,
     upsert_votos_txt,
     write_pending_mesas_txt,
     write_snapshot_json,
@@ -131,6 +133,7 @@ def _flush_batch(
     upsert_mesas_data_txt(batch_results, output_dir / "mesas_data.txt")
     upsert_votos_txt(batch_results, output_dir / "votos.txt")
     upsert_agrupaciones_txt(batch_results, output_dir / "agrupaciones.txt")
+    upsert_locales_txt(batch_results, output_dir / "locales.txt")
 
 
 def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
@@ -138,7 +141,13 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     id_eleccion = args.id_eleccion or client.get_active_presidential_election_id()
     print(f"idEleccion: {id_eleccion}")
 
-    # 2. Determine which mesas to process
+    # 2. Fetch and write full geographic hierarchy once per run
+    print("Descargando jerarquía geográfica...")
+    ubicaciones = client.get_ubicaciones(id_eleccion)
+    upsert_ubicaciones_txt(ubicaciones, output_dir / "ubicaciones.txt")
+    print(f"  {len(ubicaciones)} ubigeos escritos en ubicaciones.txt")
+
+    # 3. Determine which mesas to process
     pending_path = work_dir / "mesas_pendientes.txt"
     if not args.redescubrir and pending_path.exists():
         mesas = load_pending_mesas_txt(pending_path)
