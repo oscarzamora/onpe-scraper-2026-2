@@ -225,56 +225,124 @@ erDiagram
     locales }o--|| ubicaciones : "ubigeo"
 ```
 
+### Modelo analítico — tabla plana desnormalizada
+
+Para análisis de drill-down geográfico se recomienda construir una tabla `hechos` que une todas las dimensiones. Es el punto de partida para dashboards, mapas y agregaciones ad-hoc.
+
+```
+hechos (tabla plana para BI)
+├── codigo_mesa, id_eleccion          ← granularidad base
+├── partido_id, nombre_partido        ← dimensión partido
+├── votos, pct_votos_validos          ← métricas de votación
+├── electores_habiles, votos_emitidos, participacion_ciudadana
+├── codigo_estado_acta                ← estado del acta
+│
+├── PERÚ ──────────────────────────────────────────────────────
+│   ├── departamento                  ← nivel 1 (drill-down)
+│   ├── provincia                     ← nivel 2
+│   ├── distrito                      ← nivel 3
+│   └── ubigeo (6 dígitos)
+│
+├── EXTERIOR ──────────────────────────────────────────────────
+│   ├── continente                    ← nivel 1
+│   ├── pais                          ← nivel 2
+│   └── ciudad                        ← nivel 3
+│
+└── LOCAL ─────────────────────────────────────────────────────
+    ├── nombre_local_votacion
+    ├── lat, lon                      ← coordenadas (tras enrich_geo)
+    └── ambito (peru / exterior)
+```
+
 ### Carga en pandas
 
 ```python
 import pandas as pd
 
-mesas     = pd.read_csv("output/mesas_data.txt",          sep="\t", dtype={"codigo_mesa": str, "id_ubigeo": str})
-votos     = pd.read_csv("output/votos.txt",               sep="\t", dtype={"codigo_mesa": str})
-agrup     = pd.read_csv("output/agrupaciones.txt",        sep="\t")
-historial = pd.read_csv("output/candidatos_historial.txt", sep="\t")
-ubicaciones = pd.read_csv("output/ubicaciones.txt",       sep="\t", dtype={"ubigeo": str})
-locales     = pd.read_csv("output/locales.txt",           sep="\t", dtype={"ubigeo": str})
+# ── Carga de tablas base ────────────────────────────────────────────────────
+mesas  = pd.read_csv("output/mesas_data.txt",  sep="\t",
+                     dtype={"codigo_mesa": str, "id_ubigeo": str, "codigo_local_votacion": str})
+votos  = pd.read_csv("output/votos.txt",        sep="\t", dtype={"codigo_mesa": str})
+agrup  = pd.read_csv("output/agrupaciones.txt", sep="\t")
+ub     = pd.read_csv("output/ubicaciones.txt",  sep="\t", dtype={"ubigeo": str})
+loc    = pd.read_csv("output/locales.txt",       sep="\t",
+                     dtype={"ubigeo": str, "codigo_local_votacion": str})
 
-# ── Votos totales por partido (segunda vuelta) ──────────────────────────────
-totales = (
-    votos.merge(agrup, on="partido_id")
-         .groupby("nombre", as_index=False)["votos"]
-         .sum()
-         .sort_values("votos", ascending=False)
-)
-
-# ── Participación promedio por departamento ────────────────────────────────
-geo = (
-    mesas
-    .merge(locales[["codigo_local_votacion", "ubigeo"]], on="codigo_local_votacion", how="left")
-    .merge(ubicaciones[["ubigeo", "departamento"]], on="ubigeo", how="left")
-)
-participacion_dep = (
-    geo.groupby("departamento")["participacion_ciudadana"].mean().sort_values(ascending=False)
-)
-
-# ── Votos por partido × departamento ──────────────────────────────────────
-votos_geo = (
+# ── Tabla plana desnormalizada (hechos) ─────────────────────────────────────
+hechos = (
     votos
-    .merge(mesas[["codigo_mesa", "id_eleccion", "codigo_local_votacion"]], on=["codigo_mesa", "id_eleccion"])
-    .merge(locales[["codigo_local_votacion", "ubigeo"]], on="codigo_local_votacion", how="left")
-    .merge(ubicaciones[["ubigeo", "departamento"]], on="ubigeo", how="left")
-    .merge(agrup, on="partido_id")
-    .groupby(["departamento", "nombre"])["votos"].sum()
-    .unstack(fill_value=0)
+    .merge(agrup.rename(columns={"nombre": "nombre_partido"}), on="partido_id")
+    .merge(mesas, on=["codigo_mesa", "id_eleccion"])
+    .merge(loc[["codigo_local_votacion", "ubigeo", "lat", "lon"]], on="codigo_local_votacion", how="left")
+    .merge(ub, on="ubigeo", how="left")
 )
+# columna conveniencia: etiqueta geográfica de nivel 1
+hechos["geo_nivel1"] = hechos["departamento"].fillna(hechos["continente"])
+hechos["geo_nivel2"] = hechos["provincia"].fillna(hechos["pais"])
+hechos["geo_nivel3"] = hechos["distrito"].fillna(hechos["ciudad"])
+```
 
-# ── Mesas aún no contabilizadas ────────────────────────────────────────────
+#### Drill-down: votos por partido
+
+```python
+# Nacional
+hechos.groupby("nombre_partido")["votos"].sum().sort_values(ascending=False)
+
+# Por departamento (Perú) → provincia → distrito
+peru   = hechos[hechos["ambito"] == "peru"]
+by_dep = peru.groupby(["departamento", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+by_prov = peru.groupby(["departamento", "provincia", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+by_dist = peru.groupby(["departamento", "provincia", "distrito", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+
+# Por continente → país → ciudad (exterior)
+ext = hechos[hechos["ambito"] == "exterior"]
+by_cont  = ext.groupby(["continente", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+by_pais  = ext.groupby(["continente", "pais", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+by_ciudad = ext.groupby(["continente", "pais", "ciudad", "nombre_partido"])["votos"].sum().unstack(fill_value=0)
+```
+
+#### Participación ciudadana
+
+```python
+# Participación promedio por departamento
+peru.drop_duplicates("codigo_mesa") \
+    .groupby("departamento")["participacion_ciudadana"] \
+    .mean().sort_values(ascending=False)
+
+# Mesas aún no contabilizadas, agrupadas por departamento
 pendientes = mesas[mesas["codigo_estado_acta"] != "C"]
+pendientes.merge(loc[["codigo_local_votacion","ubigeo"]], on="codigo_local_votacion", how="left") \
+          .merge(ub[["ubigeo","departamento"]], on="ubigeo", how="left") \
+          .groupby("departamento").size().sort_values(ascending=False)
+```
 
-# ── Evolución del conteo en el tiempo (historial) ──────────────────────────
+#### Mapa de calor (con lat/lon de enrich_geo)
+
+```python
+import folium
+from folium.plugins import HeatMap
+
+pts = (
+    hechos[hechos["lat"].notna()]
+    .drop_duplicates("codigo_local_votacion")
+    [["lat", "lon", "electores_habiles"]]
+    .dropna()
+)
+m = folium.Map(location=[-9.19, -75.0], zoom_start=5)
+HeatMap(pts.values.tolist(), radius=8).add_to(m)
+m.save("output/mapa_electores.html")
+```
+
+#### Evolución del conteo en el tiempo
+
+```python
+historial = pd.read_csv("output/candidatos_historial.txt", sep="\t")
 historial["ts"] = pd.to_datetime(historial["timestampActualizacion"])
 evolucion = historial.pivot_table(
     index="ts", columns="nombreAgrupacionPolitica",
     values="porcentajeVotosValidos", aggfunc="last"
 )
+evolucion.plot(title="Evolución % votos válidos — Segunda Vuelta 2026")
 ```
 
 ---
