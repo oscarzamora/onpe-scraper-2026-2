@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+import threading
+import time
+import warnings
+from dataclasses import dataclass, field
+from typing import Any
+
+from curl_cffi import requests as curl_requests
+
+from .models import AgrupacionData, MesaData, MesaResult, VotoData
+
+
+BASE_URL = "https://resultadoelectoral.onpe.gob.pe/presentacion-backend"
+ASSETS_BASE_URL = "https://resultadoelectoral.onpe.gob.pe"
+_MIN_MESAS_SANITY = 100
+
+
+@dataclass
+class OnpeClient:
+    base_url: str = BASE_URL
+    timeout_seconds: int = 20
+    max_retries: int = 3
+    _thread_local: threading.local = field(
+        default_factory=threading.local, init=False, repr=False, compare=False
+    )
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _get_data(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """curl_cffi GET for aggregate endpoints (Chrome impersonation required by ONPE)."""
+        response = self._get_curl_session().get(
+            f"{self.base_url}{path}",
+            params=params,
+            impersonate="chrome124",
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if "data" not in payload:
+            raise ValueError(f"Respuesta inesperada sin 'data': {payload}")
+        return payload["data"]
+
+    def _build_curl_session(self) -> curl_requests.Session:
+        session = curl_requests.Session()
+        session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://resultadoelectoral.onpe.gob.pe/",
+                "Accept-Language": "es-PE,es;q=0.9",
+            }
+        )
+        return session
+
+    def _get_curl_session(self) -> curl_requests.Session:
+        """Thread-local curl_cffi session (reused across requests in the same thread)."""
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = self._build_curl_session()
+            self._thread_local.session = session
+        return session
+
+    # ------------------------------------------------------------------ #
+    # Summary / aggregate endpoints (use plain requests)                  #
+    # ------------------------------------------------------------------ #
+
+    def get_active_process(self) -> dict[str, Any]:
+        return self._get_data("/proceso/proceso-electoral-activo")
+
+    def get_active_presidential_election_id(self) -> int:
+        process = self.get_active_process()
+        election_id = process.get("idEleccionPrincipal")
+        if election_id is None:
+            raise ValueError(f"No se encontro 'idEleccionPrincipal' en: {process}")
+        return int(election_id)
+
+    def get_totals(
+        self,
+        election_id: int,
+        tipo_filtro: str = "eleccion",
+        **extra_filters: Any,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "idEleccion": election_id,
+            "tipoFiltro": tipo_filtro,
+            **extra_filters,
+        }
+        return self._get_data("/resumen-general/totales", params=params)
+
+    def get_candidates(
+        self,
+        election_id: int,
+        tipo_filtro: str = "eleccion",
+        **extra_filters: Any,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "idEleccion": election_id,
+            "tipoFiltro": tipo_filtro,
+            **extra_filters,
+        }
+        data = self._get_data(
+            "/eleccion-presidencial/participantes-ubicacion-geografica-nombre",
+            params=params,
+        )
+        if not isinstance(data, list):
+            raise ValueError(f"Se esperaba lista de candidatos, se obtuvo: {type(data)}")
+        return data
+
+    def get_snapshot(
+        self,
+        election_id: int | None = None,
+        tipo_filtro: str = "eleccion",
+        **extra_filters: Any,
+    ) -> dict[str, Any]:
+        if election_id is None:
+            election_id = self.get_active_presidential_election_id()
+
+        active_process = self.get_active_process()
+        totals = self.get_totals(election_id, tipo_filtro=tipo_filtro, **extra_filters)
+        candidates = self.get_candidates(election_id, tipo_filtro=tipo_filtro, **extra_filters)
+
+        return {
+            "activeProcess": active_process,
+            "idEleccion": election_id,
+            "tipoFiltro": tipo_filtro,
+            "filtros": extra_filters,
+            "totales": totals,
+            "candidatos": candidates,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Mesa-level endpoints (require curl_cffi Chrome impersonation)       #
+    # ------------------------------------------------------------------ #
+
+    def get_all_mesas(self) -> list[str]:
+        """
+        Fetch the static mesas asset and return deduplicated, normalized 6-digit mesa codes.
+
+        During the segunda vuelta, ONPE populates this file with all ~92k mesas.
+        Returns a warning if fewer than _MIN_MESAS_SANITY are returned (election not yet published).
+        """
+        url = f"{ASSETS_BASE_URL}/assets/data/mesas.json"
+        response = self._get_curl_session().get(url, impersonate="chrome124", timeout=self.timeout_seconds)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            raise ValueError(f"assets/data/mesas.json: se esperaba lista, se obtuvo {type(data)}")
+        if len(data) < _MIN_MESAS_SANITY:
+            warnings.warn(
+                f"mesas.json devolvio solo {len(data)} mesas "
+                f"(minimo esperado: {_MIN_MESAS_SANITY}). "
+                "Puede que la segunda vuelta aun no haya sido publicada por ONPE.",
+                stacklevel=2,
+            )
+        codes: list[str] = []
+        seen: set[str] = set()
+        for record in data:
+            raw = str(record.get("NUM_MESA", "")).strip()
+            if not raw or not raw.isdigit():
+                continue
+            code = raw.zfill(6)
+            if code not in seen:
+                seen.add(code)
+                codes.append(code)
+        return codes
+
+    @staticmethod
+    def _parse_acta(acta: dict[str, Any], codigo_mesa: str) -> MesaResult:
+        id_eleccion = int(acta.get("idEleccion") or 0)
+        mesa_data = MesaData(
+            codigo_mesa=codigo_mesa,
+            id_eleccion=id_eleccion,
+            id_ubigeo=int(acta.get("idUbigeo") or 0),
+            nombre_local_votacion=str(acta.get("nombreLocalVotacion") or ""),
+            codigo_local_votacion=str(acta.get("codigoLocalVotacion") or ""),
+            id_ambito_geografico=int(acta.get("idAmbitoGeografico") or 0),
+            electores_habiles=int(acta.get("totalElectoresHabiles") or 0),
+            votos_emitidos=int(acta.get("totalVotosEmitidos") or 0),
+            votos_validos=int(acta.get("totalVotosValidos") or 0),
+            total_asistentes=int(acta.get("totalAsistentes") or 0),
+            participacion_ciudadana=float(acta.get("porcentajeParticipacionCiudadana") or 0.0),
+            codigo_estado_acta=str(acta.get("codigoEstadoActa") or ""),
+            descripcion_estado_acta=str(acta.get("descripcionEstadoActa") or ""),
+        )
+        agrupaciones: list[AgrupacionData] = []
+        votos: list[VotoData] = []
+        for item in acta.get("detalle") or []:
+            partido_id = int(item.get("adAgrupacionPolitica") or 0)
+            if not partido_id:
+                continue
+            agrupaciones.append(
+                AgrupacionData(
+                    partido_id=partido_id,
+                    codigo_op=str(item.get("adCodigo") or ""),
+                    nombre=str(item.get("adDescripcion") or ""),
+                )
+            )
+            votos.append(
+                VotoData(
+                    codigo_mesa=codigo_mesa,
+                    id_eleccion=id_eleccion,
+                    partido_id=partido_id,
+                    votos=int(item.get("adVotos") or 0),
+                    pct_votos_validos=float(item.get("adPorcentajeVotosValidos") or 0.0),
+                    pct_votos_emitidos=float(item.get("adPorcentajeVotosEmitidos") or 0.0),
+                )
+            )
+        return MesaResult(
+            codigo_mesa=codigo_mesa,
+            mesa_data=mesa_data,
+            agrupaciones=agrupaciones,
+            votos=votos,
+        )
+
+    def get_mesa_acta(self, codigo_mesa: str, id_eleccion: int) -> MesaResult | None:
+        """
+        Fetch the acta for a specific mesa and election ID.
+
+        Returns None when the mesa has no data (HTTP 204).
+        Retries up to max_retries times with exponential backoff on transient errors.
+        Raises RuntimeError after all retries are exhausted.
+        """
+        codigo_mesa = codigo_mesa.zfill(6)
+        url = f"{self.base_url}/actas/buscar/mesa"
+        last_exc: Exception | None = None
+
+        for attempt in range(self.max_retries):
+            try:
+                response = self._get_curl_session().get(
+                    url,
+                    params={"codigoMesa": codigo_mesa},
+                    impersonate="chrome124",
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 204:
+                    return None
+                response.raise_for_status()
+                payload = response.json()
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < self.max_retries - 1:
+                    time.sleep(0.5 * (2**attempt))
+        else:
+            raise RuntimeError(
+                f"Mesa {codigo_mesa}: {self.max_retries} intentos fallidos"
+            ) from last_exc
+
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return None
+
+        matching = [
+            a for a in data if isinstance(a, dict) and a.get("idEleccion") == id_eleccion
+        ]
+        if not matching:
+            return None
+        if len(matching) > 1:
+            warnings.warn(
+                f"Mesa {codigo_mesa}: {len(matching)} actas para idEleccion={id_eleccion}, "
+                "usando la primera.",
+                stacklevel=2,
+            )
+        return self._parse_acta(matching[0], codigo_mesa)

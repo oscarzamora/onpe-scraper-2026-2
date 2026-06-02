@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .client import OnpeClient
+from .exporters import (
+    append_candidates_txt,
+    load_pending_mesas_txt,
+    upsert_agrupaciones_txt,
+    upsert_mesas_data_txt,
+    upsert_votos_txt,
+    write_pending_mesas_txt,
+    write_snapshot_json,
+)
+from .models import MesaResult
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Extraccion base ONPE segunda vuelta 2026 desde API interna"
+    )
+    parser.add_argument(
+        "--modo",
+        default="resumen",
+        choices=["resumen", "mesas"],
+        help="resumen: totales y candidatos (default). mesas: extraccion autonoma por mesa.",
+    )
+
+    # --- resumen mode args ---
+    parser.add_argument("--id-eleccion", type=int, default=None)
+    parser.add_argument(
+        "--tipo-filtro",
+        default="eleccion",
+        help="eleccion, ambito_geografico, ubigeo_nivel_01, ubigeo_nivel_02, ubigeo_nivel_03",
+    )
+    parser.add_argument("--id-ambito-geografico", type=int, default=None)
+    parser.add_argument("--ubigeo", default=None)
+
+    # --- mesas mode args ---
+    parser.add_argument(
+        "--redescubrir",
+        action="store_true",
+        help="Ignorar mesas_pendientes.txt y re-descubrir desde assets/data/mesas.json",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=5,
+        help="Hilos paralelos para consultas de mesa (maximo: 5)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=500,
+        help="Mesas por lote antes de escribir a disco",
+    )
+    parser.add_argument("--timeout", type=int, default=20, help="Segundos por peticion")
+
+    # --- shared args ---
+    parser.add_argument("--intervalo-segundos", type=int, default=0)
+    parser.add_argument("--salida", default="output")
+    parser.add_argument("--trabajo", default="work", help="Carpeta para archivos intermedios (pendientes, snapshots)")
+    parser.add_argument("--verbose", action="store_true")
+    return parser
+
+
+def build_extra_filters(args: argparse.Namespace) -> dict[str, Any]:
+    filters: dict[str, Any] = {}
+    if args.tipo_filtro == "ambito_geografico" and args.id_ambito_geografico is not None:
+        filters["idAmbitoGeografico"] = args.id_ambito_geografico
+    if args.tipo_filtro.startswith("ubigeo_nivel_"):
+        if not args.ubigeo:
+            raise ValueError("Para filtros ubigeo_nivel_* debes pasar --ubigeo")
+        filters["ubigeo"] = args.ubigeo
+    return filters
+
+
+def print_summary(snapshot: dict[str, Any]) -> None:
+    process = snapshot.get("activeProcess", {})
+    totals = snapshot.get("totales", {})
+    candidates = snapshot.get("candidatos", [])
+
+    print(f"Proceso: {process.get('nombre')}")
+    print(f"Id eleccion: {snapshot.get('idEleccion')}")
+    print(f"Tipo filtro: {snapshot.get('tipoFiltro')}")
+    if snapshot.get("filtros"):
+        print(f"Filtros: {json.dumps(snapshot['filtros'], ensure_ascii=False)}")
+    print(f"Actas contabilizadas: {totals.get('actasContabilizadas')}")
+    print(f"Total actas: {totals.get('totalActas')}")
+    print(f"Participacion ciudadana: {totals.get('participacionCiudadana')}")
+    print("Candidatos:")
+    for c in candidates:
+        print(
+            f"- {c.get('nombreCandidato')} ({c.get('nombreAgrupacionPolitica')}): "
+            f"{c.get('porcentajeVotosValidos')}%"
+        )
+
+
+def run_resumen(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
+    filters = build_extra_filters(args)
+    snapshot = client.get_snapshot(
+        election_id=args.id_eleccion,
+        tipo_filtro=args.tipo_filtro,
+        **filters,
+    )
+
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    json_path = work_dir / f"snapshot_{now}.json"
+    txt_path = output_dir / "candidatos_historial.txt"
+
+    write_snapshot_json(snapshot, json_path)
+    append_candidates_txt(snapshot, txt_path)
+
+    print_summary(snapshot)
+    print(f"Snapshot guardado en: {json_path}")
+    print(f"Historial actualizado en: {txt_path}")
+
+
+def _flush_batch(
+    batch_results: list[MesaResult],
+    output_dir: Path,
+) -> None:
+    if not batch_results:
+        return
+    upsert_mesas_data_txt(batch_results, output_dir / "mesas_data.txt")
+    upsert_votos_txt(batch_results, output_dir / "votos.txt")
+    upsert_agrupaciones_txt(batch_results, output_dir / "agrupaciones.txt")
+
+
+def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
+    # 1. Detect election
+    id_eleccion = args.id_eleccion or client.get_active_presidential_election_id()
+    print(f"idEleccion: {id_eleccion}")
+
+    # 2. Determine which mesas to process
+    pending_path = work_dir / "mesas_pendientes.txt"
+    if not args.redescubrir and pending_path.exists():
+        mesas = load_pending_mesas_txt(pending_path)
+        print(f"Reanudando desde mesas_pendientes.txt: {len(mesas)} mesas")
+    else:
+        mesas = client.get_all_mesas()
+        print(f"Mesas descubiertas desde mesas.json: {len(mesas)}")
+
+    max_workers = max(1, min(args.max_workers, 5))
+    batch_size = max(1, args.batch_size)
+
+    processed = 0
+    errors = 0
+    pending_after: list[str] = []
+    batch_results: list[MesaResult] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit in chunks so we don't queue all 92k futures at once
+        for chunk_start in range(0, len(mesas), batch_size):
+            chunk = mesas[chunk_start : chunk_start + batch_size]
+            futures = {
+                executor.submit(client.get_mesa_acta, code, id_eleccion): code
+                for code in chunk
+            }
+            for future in as_completed(futures):
+                codigo_mesa = futures[future]
+                try:
+                    result = future.result()
+                    if result is None:
+                        # Mesa not found for this election — keep pending
+                        pending_after.append(codigo_mesa)
+                    else:
+                        batch_results.append(result)
+                        estado = (result.mesa_data.descripcion_estado_acta if result.mesa_data else "")
+                        if estado.casefold() != "contabilizada":
+                            pending_after.append(codigo_mesa)
+                    processed += 1
+                except Exception as exc:
+                    errors += 1
+                    pending_after.append(codigo_mesa)
+                    if args.verbose:
+                        print(f"  Error {codigo_mesa}: {exc}")
+
+            # Write batch to disk and clear buffer
+            _flush_batch(batch_results, output_dir)
+            batch_results = []
+
+            done = min(chunk_start + batch_size, len(mesas))
+            print(
+                f"  {done}/{len(mesas)} mesas | "
+                f"errores={errors} | pendientes={len(pending_after)}"
+            )
+
+    write_pending_mesas_txt(pending_after, pending_path)
+    print(
+        f"\nCompletado: procesadas={processed} errores={errors} "
+        f"pendientes={len(pending_after)}"
+    )
+    print(f"Salidas en: {output_dir}")
+
+
+def _run_once(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
+    if args.modo == "mesas":
+        run_mesas(client, args, output_dir, work_dir)
+    else:
+        run_resumen(client, args, output_dir, work_dir)
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    output_dir = Path(args.salida)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    work_dir = Path(args.trabajo)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    client = OnpeClient(timeout_seconds=args.timeout if hasattr(args, "timeout") else 20)
+
+    if args.intervalo_segundos <= 0:
+        _run_once(client, args, output_dir, work_dir)
+        return
+
+    print(f"Iniciando modo continuo cada {args.intervalo_segundos} segundos")
+    while True:
+        try:
+            _run_once(client, args, output_dir, work_dir)
+        except Exception as exc:
+            print(f"Error durante extraccion: {exc}")
+            if args.verbose:
+                raise
+        time.sleep(args.intervalo_segundos)
+
+
+if __name__ == "__main__":
+    main()
