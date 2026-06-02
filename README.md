@@ -75,6 +75,8 @@ output/                          ← archivos analíticos (tab-delimited UTF-8)
   votos.txt                      ← votos por mesa × partido
   agrupaciones.txt               ← catálogo de agrupaciones políticas
   candidatos_historial.txt       ← serie histórica de totales por candidato
+  ubicaciones.txt                ← jerarquía geográfica completa (2 102 ubigeos)
+  locales.txt                    ← locales de votación con lat/lon (opcional)
 
 work/                            ← estado interno del scraper (no commitear)
   mesas_pendientes.txt           ← mesas aún no contabilizadas (resume file)
@@ -88,7 +90,7 @@ work/                            ← estado interno del scraper (no commitear)
 |---|---|---|
 | `codigo_mesa` | str(6) | PK — código de mesa |
 | `id_eleccion` | int | PK — ID de elección |
-| `id_ubigeo` | int | Código ubigeo del local |
+| `id_ubigeo` | str(6) | Código ubigeo del local (FK → ubicaciones) |
 | `nombre_local_votacion` | str | Nombre del local |
 | `codigo_local_votacion` | str | Código del local |
 | `id_ambito_geografico` | int | 1 = Perú, 2 = Exterior |
@@ -120,24 +122,51 @@ work/                            ← estado interno del scraper (no commitear)
 #### `candidatos_historial.txt`
 Serie temporal de totales nacionales, una fila por candidato por corrida. Útil para graficar la evolución del conteo.
 
+#### `ubicaciones.txt`
+Jerarquía geográfica completa, derivada del endpoint `dep-prov-distritos` de ONPE (2 102 ubigeos únicos).
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `ubigeo` | str(6) | PK — código ubigeo de 6 dígitos |
+| `ambito` | str | `peru` o `exterior` |
+| `departamento` | str | Solo si `ambito = peru` |
+| `provincia` | str | Solo si `ambito = peru` |
+| `distrito` | str | Solo si `ambito = peru` |
+| `continente` | str | Solo si `ambito = exterior` |
+| `pais` | str | Solo si `ambito = exterior` |
+| `ciudad` | str | Solo si `ambito = exterior` |
+
+Prefijos: `01`–`25` = departamentos peruanos; `91`–`95` = exterior (91=África, 92=América, 93=Asia, 94=Europa, 95=Oceanía).
+
+#### `locales.txt`
+Locales de votación descubiertos durante el scraping. Las columnas `lat`/`lon` se enriquecen con `enrich_geo.py`.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `codigo_local_votacion` | str | PK |
+| `nombre_local_votacion` | str | Nombre del local |
+| `ubigeo` | str(6) | FK → ubicaciones |
+| `lat` | float? | Latitud (Nominatim, opcional) |
+| `lon` | float? | Longitud (Nominatim, opcional) |
+
 ### Modelo relacional
 
 ```mermaid
 erDiagram
     mesas_data {
-        str  codigo_mesa        PK
-        int  id_eleccion        PK
-        int  id_ubigeo
-        str  nombre_local_votacion
-        str  codigo_local_votacion
-        int  id_ambito_geografico
-        int  electores_habiles
-        int  votos_emitidos
-        int  votos_validos
-        int  total_asistentes
+        str   codigo_mesa        PK
+        int   id_eleccion        PK
+        str   id_ubigeo
+        str   nombre_local_votacion
+        str   codigo_local_votacion
+        int   id_ambito_geografico
+        int   electores_habiles
+        int   votos_emitidos
+        int   votos_validos
+        int   total_asistentes
         float participacion_ciudadana
-        str  codigo_estado_acta
-        str  descripcion_estado_acta
+        str   codigo_estado_acta
+        str   descripcion_estado_acta
     }
 
     votos {
@@ -171,8 +200,29 @@ erDiagram
         float porcentajeVotosEmitidos
     }
 
+    ubicaciones {
+        str ubigeo             PK
+        str ambito
+        str departamento
+        str provincia
+        str distrito
+        str continente
+        str pais
+        str ciudad
+    }
+
+    locales {
+        str   codigo_local_votacion  PK
+        str   nombre_local_votacion
+        str   ubigeo                 FK
+        float lat
+        float lon
+    }
+
     mesas_data ||--o{ votos : "codigo_mesa + id_eleccion"
     agrupaciones ||--o{ votos : "partido_id"
+    mesas_data }o--|| locales : "codigo_local_votacion"
+    locales }o--|| ubicaciones : "ubigeo"
 ```
 
 ### Carga en pandas
@@ -180,10 +230,12 @@ erDiagram
 ```python
 import pandas as pd
 
-mesas     = pd.read_csv("output/mesas_data.txt",          sep="\t", dtype={"codigo_mesa": str})
+mesas     = pd.read_csv("output/mesas_data.txt",          sep="\t", dtype={"codigo_mesa": str, "id_ubigeo": str})
 votos     = pd.read_csv("output/votos.txt",               sep="\t", dtype={"codigo_mesa": str})
 agrup     = pd.read_csv("output/agrupaciones.txt",        sep="\t")
 historial = pd.read_csv("output/candidatos_historial.txt", sep="\t")
+ubicaciones = pd.read_csv("output/ubicaciones.txt",       sep="\t", dtype={"ubigeo": str})
+locales     = pd.read_csv("output/locales.txt",           sep="\t", dtype={"ubigeo": str})
 
 # ── Votos totales por partido (segunda vuelta) ──────────────────────────────
 totales = (
@@ -193,10 +245,25 @@ totales = (
          .sort_values("votos", ascending=False)
 )
 
-# ── Participación promedio por departamento (ubigeo 2 dígitos) ─────────────
-mesas["dep"] = mesas["id_ubigeo"].astype(str).str.zfill(6).str[:2]
+# ── Participación promedio por departamento ────────────────────────────────
+geo = (
+    mesas
+    .merge(locales[["codigo_local_votacion", "ubigeo"]], on="codigo_local_votacion", how="left")
+    .merge(ubicaciones[["ubigeo", "departamento"]], on="ubigeo", how="left")
+)
 participacion_dep = (
-    mesas.groupby("dep")["participacion_ciudadana"].mean().sort_values(ascending=False)
+    geo.groupby("departamento")["participacion_ciudadana"].mean().sort_values(ascending=False)
+)
+
+# ── Votos por partido × departamento ──────────────────────────────────────
+votos_geo = (
+    votos
+    .merge(mesas[["codigo_mesa", "id_eleccion", "codigo_local_votacion"]], on=["codigo_mesa", "id_eleccion"])
+    .merge(locales[["codigo_local_votacion", "ubigeo"]], on="codigo_local_votacion", how="left")
+    .merge(ubicaciones[["ubigeo", "departamento"]], on="ubigeo", how="left")
+    .merge(agrup, on="partido_id")
+    .groupby(["departamento", "nombre"])["votos"].sum()
+    .unstack(fill_value=0)
 )
 
 # ── Mesas aún no contabilizadas ────────────────────────────────────────────
@@ -216,22 +283,33 @@ evolucion = historial.pivot_table(
 
 ```
 src/onpe_scraper/
-├── models.py      # Dataclasses: MesaData, VotoData, AgrupacionData, MesaResult
+├── models.py      # Dataclasses: MesaData, VotoData, AgrupacionData, UbicacionData, LocalData, MesaResult
 ├── client.py      # OnpeClient — toda la lógica HTTP (curl_cffi + Chrome impersonation)
 ├── exporters.py   # Escritura de archivos: upsert TSV, snapshot JSON
-└── main.py        # CLI (argparse): modos resumen / mesas, ThreadPoolExecutor
+├── main.py        # CLI (argparse): modos resumen / mesas, ThreadPoolExecutor
+└── enrich_geo.py  # Geocodificador opcional vía Nominatim (OpenStreetMap)
 ```
 
 **Flujo modo mesas:**
 ```
 proceso-electoral-activo → id_eleccion
+dep-prov-distritos       → ubicaciones.txt  (2102 ubigeos, Perú + exterior)
 assets/data/mesas.json   → lista de códigos (~92k)
         ↓ (parallel, 5 workers)
 /actas/buscar/mesa?codigoMesa=XXXXXX  →  MesaResult
         ↓ (cada 500 mesas)
-upsert → mesas_data.txt / votos.txt / agrupaciones.txt
+upsert → mesas_data.txt / votos.txt / agrupaciones.txt / locales.txt
         ↓ (al finalizar)
 mesas_pendientes.txt  ← solo las no contabilizadas
+```
+
+**Enriquecimiento geográfico (opcional):**
+```powershell
+# Añade lat/lon a locales.txt vía Nominatim (1 req/s, reanudable)
+python -m src.onpe_scraper.enrich_geo --verbose
+
+# Forzar re-geocodificación de todos los locales
+python -m src.onpe_scraper.enrich_geo --force
 ```
 
 ---
