@@ -1,13 +1,85 @@
 # ONPE Scraper 2026 — Segunda Vuelta Presidencial
 
-Extractor autónomo de resultados electorales desde la API interna de [ONPE](https://resultadoelectoral.onpe.gob.pe) para las Elecciones Generales 2026. Funciona sin depender del frontend Angular oficial.
+> **Transparencia electoral independiente para las Elecciones Generales del Perú 2026.**
+>
+> Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadoelectoral.onpe.gob.pe](https://resultadoelectoral.onpe.gob.pe) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
 
-Dos modos de operación:
-- **`resumen`** — totales nacionales y porcentajes por candidato (primera y segunda vuelta)
-- **`mesas`** — descubrimiento y scraping autónomo de las ~92 000 mesas de votación, con reanudación incremental
+Los datos se actualizan automáticamente vía **GitHub Actions cada 5 minutos** a partir del domingo 8 de junio de 2026 a las 6 PM EST. Cualquier persona puede auditar el código, los datos y la metodología.
+
+---
+
+## API de ONPE — Endpoints conocidos (segunda vuelta 2026)
+
+> [!IMPORTANT]
+> Todos los endpoints requieren **Chrome fingerprinting** (`curl_cffi` con `impersonate="chrome124"`). La librería estándar `requests` recibe el SPA Angular en vez del JSON. Esto fue descubierto mediante ingeniería inversa del frontend oficial.
+
+**Base URL:** `https://resultadoelectoral.onpe.gob.pe`
+
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/presentacion-backend/proceso/proceso-electoral-activo` | GET | Retorna el `idEleccion` del proceso activo. Auto-detecta segunda vuelta. |
+| `/assets/data/mesas.json` | GET | Lista completa de códigos de mesa (~92 000 en día de elección). Disponible desde el día de la elección. |
+| `/presentacion-backend/ubigeos/dep-prov-distritos?idEleccion={id}` | GET | Jerarquía geográfica completa: 2 102 ubigeos únicos (Perú: dept/prov/dist; exterior: continente/país/ciudad). |
+| `/presentacion-backend/actas/buscar/mesa?codigoMesa={codigo}&idEleccion={id}` | GET | Acta de una mesa: votos por partido, estado (`C`=Contabilizada), datos del local. HTTP 204 = mesa sin datos aún. |
+| `/presentacion-backend/totales/...` | GET | Totales nacionales / por filtro geográfico (modo resumen). |
+| `/presentacion-backend/candidatos/...` | GET | Candidatos con porcentajes de votos (modo resumen). |
+
+**Envelope de respuesta estándar:**
+```json
+{ "data": <payload> }
+```
+
+**Estados del acta (`codigo_estado_acta`):**
+| Código | Descripción |
+|---|---|
+| `C` | Contabilizada — datos finales |
+| `P` | Procesada — pendiente de contabilización |
+| `N` | No transmitida |
+
+**Filtros geográficos disponibles (`tipoFiltro`):**
+```
+eleccion            → nacional
+ambito_geografico   → 1=Perú, 2=Exterior
+ubigeo_nivel_01     → departamento (ej: 15 = Lima)
+ubigeo_nivel_02     → provincia    (ej: 1501 = Lima Provincia)
+ubigeo_nivel_03     → distrito     (ej: 150101 = Lima Cercado)
+```
 
 > [!NOTE]
-> El modo `mesas` está preparado para la segunda vuelta. Hasta que ONPE publique `mesas.json` con los datos reales (~92k mesas), el endpoint devuelve registros de demo y el scraper emitirá una advertencia.
+> Estos endpoints fueron identificados el 2 de junio de 2026 analizando el tráfico del frontend Angular oficial. ONPE podría modificarlos sin previo aviso. Si detectas cambios, abre un issue.
+
+---
+
+## Datos en vivo
+
+Los archivos `output/*.txt` de este repositorio se actualizan automáticamente durante el escrutinio:
+
+```
+output/
+  ubicaciones.txt       ← jerarquía geográfica completa (2 102 ubigeos)
+  mesas_data.txt        ← una fila por mesa (estado, participación, local)
+  votos.txt             ← votos por mesa × partido
+  agrupaciones.txt      ← catálogo de partidos
+  locales.txt           ← locales de votación con coordenadas opcionales
+```
+
+Cada commit de datos tiene el mensaje `data: YYYY-MM-DDTHH:MM:SSZ — pendientes: N mesas`.
+
+---
+
+## Usar los datos (sin instalar nada)
+
+Los datos ya están en este repo y se actualizan solos. Descarga directa:
+
+```bash
+# Todos los archivos de una vez
+git clone https://github.com/oscarzamora/onpe-scraper-2026-2.git
+cd onpe-scraper-2026-2/output
+
+# O un archivo individual (sin clonar)
+curl -O https://raw.githubusercontent.com/oscarzamora/onpe-scraper-2026-2/main/output/mesas_data.txt
+curl -O https://raw.githubusercontent.com/oscarzamora/onpe-scraper-2026-2/main/output/votos.txt
+```
 
 ---
 
@@ -392,12 +464,18 @@ python -m src.onpe_scraper.enrich_geo --force
 
 ---
 
-## Proyecto relacionado
+## Proyectos relacionados
 
-[onpescraper](https://github.com/oscarzamora/onpescraper) — primera vuelta (con lista de mesas manual).
+- [onpescraper](https://github.com/oscarzamora/onpescraper) — primera vuelta 2026 (scraper original)
+
+---
+
+## Contribuciones
+
+Si ONPE modifica sus endpoints o encuentras datos incorrectos, **abre un issue o un PR**. La transparencia electoral es un esfuerzo colectivo.
 
 ---
 
 ## Licencia
 
-MIT
+MIT — los datos producidos son de dominio público.
