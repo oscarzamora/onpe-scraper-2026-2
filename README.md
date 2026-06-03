@@ -466,7 +466,7 @@ python -m src.onpe_scraper.enrich_geo --force
 
 ## Proyectos relacionados
 
-- [onpescraper](https://github.com/oscarzamora/onpescraper) — primera vuelta 2026 (scraper original)
+- [onpeescraper](https://github.com/oscarzamora/onpeescraper) — primera vuelta 2026 (scraper original)
 
 ---
 
