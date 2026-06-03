@@ -1,0 +1,2 @@
+codigo_local_votacion	nombre_local_votacion	ubigeo	lat	lon
+0001	IE 18288 ISABEL LYNCH DE RUBIO	010101		

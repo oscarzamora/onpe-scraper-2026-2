@@ -1,0 +1,75 @@
+name: Scrape ONPE — Segunda Vuelta 2026
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # cada 5 minutos
+  workflow_dispatch:
+    inputs:
+      redescubrir:
+        description: 'Re-descubrir todas las mesas (ignora mesas_pendientes.txt)'
+        type: boolean
+        default: false
+
+# Serializar runs: si un job ya está corriendo, el siguiente espera (no cancela)
+concurrency:
+  group: scrape-onpe
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verificar si el scraping ya está completo
+        id: check
+        run: |
+          if [ -f work/mesas_pendientes.txt ] && [ ! -s work/mesas_pendientes.txt ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+            echo "✅ mesas_pendientes.txt está vacío — scraping completo. Nada que hacer."
+          else
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ejecutar scraper
+        if: steps.check.outputs.complete != 'true'
+        run: |
+          EXTRA=""
+          if [ "${{ github.event.inputs.redescubrir }}" = "true" ]; then
+            EXTRA="--redescubrir"
+          fi
+          python -m src.onpe_scraper.main \
+            --modo mesas \
+            --tiempo-max 4 \
+            --max-workers 5 \
+            --batch-size 200 \
+            $EXTRA
+
+      - name: Commitear resultados
+        if: steps.check.outputs.complete != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add output/ work/mesas_pendientes.txt
+          if git diff --cached --quiet; then
+            echo "Sin cambios que commitear."
+          else
+            PENDING=$(wc -l < work/mesas_pendientes.txt 2>/dev/null | tr -d ' ' || echo "?")
+            git commit -m "data: $(date -u +%Y-%m-%dT%H:%M:%SZ) — pendientes: ${PENDING} mesas"
+            git push
+          fi

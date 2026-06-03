@@ -3,5 +3,6 @@ __pycache__/
 .venv/
 venv/
 .env
-output/
-work/
+# work/ — solo ignorar snapshots y scripts temporales; mesas_pendientes.txt SÍ se trackea
+work/*
+!work/mesas_pendientes.txt

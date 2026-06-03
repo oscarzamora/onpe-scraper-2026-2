@@ -63,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mesas por lote antes de escribir a disco",
     )
     parser.add_argument("--timeout", type=int, default=20, help="Segundos por peticion")
+    parser.add_argument(
+        "--tiempo-max",
+        type=int,
+        default=0,
+        help="Detener scraping despues de N minutos (0 = sin limite). Util para GitHub Actions.",
+    )
 
     # --- shared args ---
     parser.add_argument("--intervalo-segundos", type=int, default=0)
@@ -158,6 +164,8 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
 
     max_workers = max(1, min(args.max_workers, 5))
     batch_size = max(1, args.batch_size)
+    tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
+    start_time = time.time()
 
     processed = 0
     errors = 0
@@ -200,6 +208,14 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                 f"  {done}/{len(mesas)} mesas | "
                 f"errores={errors} | pendientes={len(pending_after)}"
             )
+
+            if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
+                # Add unprocessed mesas from remaining chunks to pending
+                remaining = mesas[chunk_start + batch_size :]
+                pending_after.extend(remaining)
+                print(f"  Tiempo maximo alcanzado ({args.tiempo_max} min). "
+                      f"{len(remaining)} mesas sin procesar quedan pendientes.")
+                break
 
     write_pending_mesas_txt(pending_after, pending_path)
     print(
