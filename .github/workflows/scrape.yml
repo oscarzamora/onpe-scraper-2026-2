@@ -2,9 +2,9 @@ name: Scrape ONPE — Segunda Vuelta 2026
 
 on:
   schedule:
-    # 6 PM EST = 23:00 UTC. Corre domingo noche + todo el lunes hasta que termine
-    - cron: '*/5 23 * * 0'    # domingo 23:00–23:59 UTC
-    - cron: '*/5 * * * 1'     # lunes todo el dia UTC (por si se extiende)
+    # Empieza ~22:42 UTC (domingo) y corre cada 10 min hasta completar
+    - cron: '*/10 22-23 * * 0'  # domingo 22:00–23:59 UTC
+    - cron: '*/10 * * * 1'      # lunes todo el dia UTC (por si se extiende)
   workflow_dispatch:
     inputs:
       redescubrir:
