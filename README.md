@@ -4,7 +4,7 @@
 >
 > Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadoelectoral.onpe.gob.pe](https://resultadoelectoral.onpe.gob.pe) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
 
-Los datos se actualizan automáticamente vía **GitHub Actions cada 5 minutos** a partir del domingo 8 de junio de 2026 a las 6 PM EST. Cualquier persona puede auditar el código, los datos y la metodología.
+Los datos se actualizan automáticamente vía **GitHub Actions cada 5 minutos** a partir del domingo 7 de junio de 2026 a las 6 PM EST. Cualquier persona puede auditar el código, los datos y la metodología.
 
 ---
 
