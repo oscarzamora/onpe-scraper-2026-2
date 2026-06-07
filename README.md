@@ -61,6 +61,7 @@ output/
   votos.txt             ← votos por mesa × partido
   agrupaciones.txt      ← catálogo de partidos
   locales.txt           ← locales de votación con coordenadas opcionales
+    locales_reasignados_segunda_vuelta_2026.txt ← mapeo de locales reasignados (origen → nuevo)
 ```
 
 Cada commit de datos tiene el mensaje `data: YYYY-MM-DDTHH:MM:SSZ — pendientes: N mesas`.
@@ -149,6 +150,7 @@ output/                          ← archivos analíticos (tab-delimited UTF-8)
   candidatos_historial.txt       ← serie histórica de totales por candidato
   ubicaciones.txt                ← jerarquía geográfica completa (2 102 ubigeos)
   locales.txt                    ← locales de votación con lat/lon (opcional)
+    locales_reasignados_segunda_vuelta_2026.txt ← feed oficial de locales reasignados para 2da vuelta
 
 work/                            ← estado interno del scraper (no commitear)
   mesas_pendientes.txt           ← mesas aún no contabilizadas (resume file)
@@ -220,6 +222,24 @@ Locales de votación descubiertos durante el scraping. Las columnas `lat`/`lon` 
 | `ubigeo` | str(6) | FK → ubicaciones |
 | `lat` | float? | Latitud (Nominatim, opcional) |
 | `lon` | float? | Longitud (Nominatim, opcional) |
+
+#### `locales_reasignados_segunda_vuelta_2026.txt`
+Feed tab-delimited de locales reasignados exclusivo para la segunda vuelta presidencial 2026.
+La relación principal para analítica es `nombre_local_votacion` (origen) → `nombre_local_votacion_nuevo` (destino).
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `nro` | int | Correlativo del comunicado |
+| `odpe` | str | ODPE responsable |
+| `dpto` | str | Departamento |
+| `provincia` | str | Provincia |
+| `distrito` | str | Distrito |
+| `ccpp` | str | Centro poblado (si aplica) |
+| `nombre_local_votacion` | str | Local original |
+| `nombre_local_votacion_nuevo` | str | Local de destino reasignado |
+| `motivo` | str | Motivo de la reasignación |
+| `mesas_a_reasignar` | int | Número de mesas afectadas |
+| `estado_parseo` | str | Calidad del parseo OCR (`OK`, `INCOMPLETO_OCR`, `OCR_REVISAR`) |
 
 ### Modelo relacional
 
