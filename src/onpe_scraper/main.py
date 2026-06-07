@@ -159,7 +159,7 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
         mesas = load_pending_mesas_txt(pending_path)
         print(f"Reanudando desde mesas_pendientes.txt: {len(mesas)} mesas")
     else:
-        mesas = client.get_all_mesas()
+        mesas = client.get_all_mesas(election_id=id_eleccion)
         print(f"Mesas descubiertas desde mesas.json: {len(mesas)}")
 
     max_workers = max(1, min(args.max_workers, 5))

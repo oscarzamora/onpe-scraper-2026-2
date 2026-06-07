@@ -31,7 +31,7 @@ Four modules under `src/onpe_scraper/`:
 - **`models.py`** — Dataclasses: `MesaData`, `AgrupacionData`, `VotoData`, `MesaResult`. All use `slots=True`. `id_eleccion` is present on all row-level models to support multi-election keys.
 - **`client.py`** — `OnpeClient` dataclass. All HTTP uses `curl_cffi` with `impersonate="chrome124"` (required by ONPE for both summary and mesa endpoints). Thread-local `curl_cffi.Session` is used for parallel mesa scraping. Key methods:
   - `get_snapshot()` — aggregate summary (resumen mode)
-  - `get_all_mesas()` — fetches `assets/data/mesas.json`, returns normalized 6-digit codes; warns if fewer than 100 returned (election not yet published)
+  - `get_all_mesas()` — discovers 6-digit mesa codes from `assets/data/mesas.json` when available, and falls back to `totalActas` range (`000001..N`) when the asset is unavailable/placeholder
   - `get_mesa_acta(codigo_mesa, id_eleccion)` — fetches `/actas/buscar/mesa`, retries up to `max_retries` with exponential backoff, returns `MesaResult | None`
 - **`exporters.py`** — Output functions:
   - `write_snapshot_json` / `append_candidates_csv` — resumen mode outputs
@@ -70,6 +70,6 @@ mesas_pendientes.txt (one mesa code per line — resume file)
 - `ensure_ascii=False` is always used in `json.dump` and CSV/TXT writes to preserve Spanish characters.
 - `tipoFiltro` valid values: `eleccion`, `ambito_geografico`, `ubigeo_nivel_01`, `ubigeo_nivel_02`, `ubigeo_nivel_03`.
 - Extra API filter params (`idAmbitoGeografico`, `ubigeo`) are forwarded via `**extra_filters` kwargs through `get_snapshot()` → `get_totals()` / `get_candidates()`.
-- Mesa discovery relies on `https://resultadoelectoral.onpe.gob.pe/assets/data/mesas.json` (different domain root than the backend base URL `/presentacion-backend`).
+- Segunda vuelta usa `https://resultadosegundavuelta.onpe.gob.pe/presentacion-backend`; si `assets/data/mesas.json` no está utilizable, discovery cae a rango `000001..totalActas`.
 - `mesas_pendientes.txt` is the resume file for incremental runs. Delete it or pass `--redescubrir` to start fresh.
 - If the ONPE API changes its payload shape, `client.py` is the only file to update.

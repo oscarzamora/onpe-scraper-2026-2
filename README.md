@@ -2,7 +2,7 @@
 
 > **Transparencia electoral independiente para las Elecciones Generales del Perú 2026.**
 >
-> Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadoelectoral.onpe.gob.pe](https://resultadoelectoral.onpe.gob.pe) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
+> Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadosegundavuelta.onpe.gob.pe](https://resultadosegundavuelta.onpe.gob.pe/main/resumen) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
 
 Los datos se actualizan automáticamente vía **GitHub Actions cada 10 minutos** a partir del domingo 7 de junio de 2026 a las 6 PM EST. Cualquier persona puede auditar el código, los datos y la metodología.
 
@@ -13,12 +13,12 @@ Los datos se actualizan automáticamente vía **GitHub Actions cada 10 minutos**
 > [!IMPORTANT]
 > Todos los endpoints requieren **Chrome fingerprinting** (`curl_cffi` con `impersonate="chrome124"`). La librería estándar `requests` recibe el SPA Angular en vez del JSON. Esto fue descubierto mediante ingeniería inversa del frontend oficial.
 
-**Base URL:** `https://resultadoelectoral.onpe.gob.pe`
+**Base URL:** `https://resultadosegundavuelta.onpe.gob.pe`
 
 | Endpoint | Método | Descripción |
 |---|---|---|
 | `/presentacion-backend/proceso/proceso-electoral-activo` | GET | Retorna el `idEleccion` del proceso activo. Auto-detecta segunda vuelta. |
-| `/assets/data/mesas.json` | GET | Lista completa de códigos de mesa (~92 000 en día de elección). Disponible desde el día de la elección. |
+| `/assets/data/mesas.json` | GET | Fuente opcional de códigos de mesa (puede no estar publicada o devolver contenido placeholder según despliegue). |
 | `/presentacion-backend/ubigeos/dep-prov-distritos?idEleccion={id}` | GET | Jerarquía geográfica completa: 2 102 ubigeos únicos (Perú: dept/prov/dist; exterior: continente/país/ciudad). |
 | `/presentacion-backend/actas/buscar/mesa?codigoMesa={codigo}&idEleccion={id}` | GET | Acta de una mesa: votos por partido, estado (`C`=Contabilizada), datos del local. HTTP 204 = mesa sin datos aún. |
 | `/presentacion-backend/totales/...` | GET | Totales nacionales / por filtro geográfico (modo resumen). |
@@ -121,7 +121,7 @@ python -m src.onpe_scraper.main --tipo-filtro ambito_geografico --id-ambito-geog
 ### Modo mesas — scraping por mesa de votación
 
 ```powershell
-# Primera ejecución: descubre todas las mesas desde mesas.json
+# Primera ejecución: descubre mesas reales y comienza scraping
 python -m src.onpe_scraper.main --modo mesas --redescubrir
 
 # Siguientes ejecuciones: retoma solo las mesas pendientes (no contabilizadas)
@@ -454,7 +454,7 @@ src/onpe_scraper/
 ```
 proceso-electoral-activo → id_eleccion
 dep-prov-distritos       → ubicaciones.txt  (2102 ubigeos, Perú + exterior)
-assets/data/mesas.json   → lista de códigos (~92k)
+mesas.json (si existe) o totalActas → lista de códigos (~92k)
         ↓ (parallel, 5 workers)
 /actas/buscar/mesa?codigoMesa=XXXXXX  →  MesaResult
         ↓ (cada 500 mesas)

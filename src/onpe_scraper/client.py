@@ -4,6 +4,8 @@ import threading
 import time
 import warnings
 from dataclasses import dataclass, field
+from json import JSONDecodeError
+from urllib.parse import urlparse
 from typing import Any
 
 from curl_cffi import requests as curl_requests
@@ -11,8 +13,8 @@ from curl_cffi import requests as curl_requests
 from .models import AgrupacionData, MesaData, MesaResult, UbicacionData, VotoData
 
 
-BASE_URL = "https://resultadoelectoral.onpe.gob.pe/presentacion-backend"
-ASSETS_BASE_URL = "https://resultadoelectoral.onpe.gob.pe"
+BASE_URL = "https://resultadosegundavuelta.onpe.gob.pe/presentacion-backend"
+ASSETS_BASE_URL = "https://resultadosegundavuelta.onpe.gob.pe"
 _MIN_MESAS_SANITY = 100
 
 
@@ -25,20 +27,38 @@ class OnpeClient:
         default_factory=threading.local, init=False, repr=False, compare=False
     )
 
+    @property
+    def _frontend_referer(self) -> str:
+        parsed = urlparse(self.base_url)
+        return f"{parsed.scheme}://{parsed.netloc}/main/resumen"
+
     # ------------------------------------------------------------------ #
     # Internal helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    def _get_data(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """curl_cffi GET for aggregate endpoints (Chrome impersonation required by ONPE)."""
+    def _request_json_get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self._get_curl_session().get(
-            f"{self.base_url}{path}",
+            url,
             params=params,
             impersonate="chrome124",
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
-        payload = response.json()
+        try:
+            payload = response.json()
+        except JSONDecodeError as exc:
+            snippet = response.text[:180].replace("\n", " ")
+            raise RuntimeError(
+                f"Respuesta no-JSON desde {url}. status={response.status_code}. "
+                f"body~={snippet}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"Respuesta JSON inesperada ({type(payload)}): {payload}")
+        return payload
+
+    def _get_data(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """curl_cffi GET for aggregate endpoints (Chrome impersonation required by ONPE)."""
+        payload = self._request_json_get(f"{self.base_url}{path}", params=params)
         if "data" not in payload:
             raise ValueError(f"Respuesta inesperada sin 'data': {payload}")
         return payload["data"]
@@ -54,7 +74,7 @@ class OnpeClient:
                 ),
                 "Accept": "application/json, text/plain, */*",
                 "X-Requested-With": "XMLHttpRequest",
-                "Referer": "https://resultadoelectoral.onpe.gob.pe/",
+                "Referer": self._frontend_referer,
                 "Accept-Language": "es-PE,es;q=0.9",
             }
         )
@@ -142,35 +162,55 @@ class OnpeClient:
 
     def get_all_mesas(
         self,
+        election_id: int | None = None,
         min_real_mesas: int = _MIN_MESAS_SANITY,
         strict: bool = True,
     ) -> list[str]:
         """
-        Fetch the static mesas asset and return deduplicated, normalized 6-digit mesa codes.
+        Return deduplicated, normalized 6-digit mesa codes.
 
-        During the segunda vuelta, ONPE populates this file with all ~92k mesas.
+        Strategy:
+        1) Try static asset /assets/data/mesas.json.
+        2) If asset is missing/invalid, fallback to totalActas and generate [000001..N].
+
         Placeholder/demo records like 0000/000000 are ignored.
         If fewer than min_real_mesas are found, strict mode raises RuntimeError.
         """
         url = f"{ASSETS_BASE_URL}/assets/data/mesas.json"
-        response = self._get_curl_session().get(url, impersonate="chrome124", timeout=self.timeout_seconds)
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, list):
-            raise ValueError(f"assets/data/mesas.json: se esperaba lista, se obtuvo {type(data)}")
-
         codes: list[str] = []
-        seen: set[str] = set()
-        for record in data:
-            raw = str(record.get("NUM_MESA", "")).strip()
-            if not raw or not raw.isdigit():
-                continue
-            code = raw.zfill(6)
-            if code == "000000":
-                continue
-            if code not in seen:
-                seen.add(code)
-                codes.append(code)
+        try:
+            response = self._get_curl_session().get(url, impersonate="chrome124", timeout=self.timeout_seconds)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                seen: set[str] = set()
+                for record in data:
+                    raw = str(record.get("NUM_MESA", "")).strip()
+                    if not raw or not raw.isdigit():
+                        continue
+                    code = raw.zfill(6)
+                    if code == "000000":
+                        continue
+                    if code not in seen:
+                        seen.add(code)
+                        codes.append(code)
+        except Exception:
+            # Some ONPE deployments route unknown assets to SPA HTML (200 + non-JSON).
+            codes = []
+
+        if len(codes) >= min_real_mesas:
+            return codes
+
+        if election_id is None:
+            election_id = self.get_active_presidential_election_id()
+        totals = self.get_totals(election_id=election_id, tipo_filtro="eleccion")
+        total_actas = int(totals.get("totalActas") or 0)
+        if total_actas > 0:
+            warnings.warn(
+                "No se pudo usar assets/data/mesas.json; usando rango 000001..totalActas para discovery.",
+                stacklevel=2,
+            )
+            codes = [str(i).zfill(6) for i in range(1, total_actas + 1)]
 
         if len(codes) < min_real_mesas:
             message = (
@@ -289,7 +329,7 @@ class OnpeClient:
             try:
                 response = self._get_curl_session().get(
                     url,
-                    params={"codigoMesa": codigo_mesa},
+                    params={"codigoMesa": codigo_mesa, "idEleccion": id_eleccion},
                     impersonate="chrome124",
                     timeout=self.timeout_seconds,
                 )
