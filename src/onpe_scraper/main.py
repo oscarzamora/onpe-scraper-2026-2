@@ -210,9 +210,10 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
             )
 
             if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
-                # Add unprocessed mesas from remaining chunks to pending
+                # Move unprocessed mesas to the front so next run advances the sweep.
+                # Without this, short time windows can keep revisiting the same prefix.
                 remaining = mesas[chunk_start + batch_size :]
-                pending_after.extend(remaining)
+                pending_after = remaining + pending_after
                 print(f"  Tiempo maximo alcanzado ({args.tiempo_max} min). "
                       f"{len(remaining)} mesas sin procesar quedan pendientes.")
                 break
