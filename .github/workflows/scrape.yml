@@ -42,18 +42,31 @@ jobs:
       - name: Verificar si el scraping ya está completo
         id: check
         run: |
+          COMPLETE="false"
+          BOOTSTRAP="false"
+
           if [ -f work/mesas_pendientes.txt ] && [ ! -s work/mesas_pendientes.txt ]; then
-            echo "complete=true" >> "$GITHUB_OUTPUT"
-            echo "✅ mesas_pendientes.txt está vacío — scraping completo. Nada que hacer."
-          else
-            echo "complete=false" >> "$GITHUB_OUTPUT"
+            # Consider it complete only if outputs already contain data rows (not just header).
+            MESAS_LINES=$(wc -l < output/mesas_data.txt 2>/dev/null | tr -d ' ' || echo "0")
+            VOTOS_LINES=$(wc -l < output/votos.txt 2>/dev/null | tr -d ' ' || echo "0")
+
+            if [ "$MESAS_LINES" -gt 1 ] && [ "$VOTOS_LINES" -gt 1 ]; then
+              COMPLETE="true"
+              echo "✅ pendientes vacío y outputs con datos — scraping completo."
+            else
+              BOOTSTRAP="true"
+              echo "ℹ️ pendientes vacío pero outputs sin datos — iniciando bootstrap con --redescubrir."
+            fi
           fi
+
+          echo "complete=${COMPLETE}" >> "$GITHUB_OUTPUT"
+          echo "bootstrap=${BOOTSTRAP}" >> "$GITHUB_OUTPUT"
 
       - name: Ejecutar scraper
         if: steps.check.outputs.complete != 'true'
         run: |
           EXTRA=""
-          if [ "${{ github.event.inputs.redescubrir }}" = "true" ]; then
+          if [ "${{ github.event.inputs.redescubrir }}" = "true" ] || [ "${{ steps.check.outputs.bootstrap }}" = "true" ]; then
             EXTRA="--redescubrir"
           fi
           python -m src.onpe_scraper.main \
