@@ -69,12 +69,25 @@ jobs:
           if [ "${{ github.event.inputs.redescubrir }}" = "true" ] || [ "${{ steps.check.outputs.bootstrap }}" = "true" ]; then
             EXTRA="--redescubrir"
           fi
-          python -m src.onpe_scraper.main \
+          set +e
+          OUTPUT=$(python -m src.onpe_scraper.main \
             --modo mesas \
             --tiempo-max 4 \
             --max-workers 5 \
             --batch-size 200 \
-            $EXTRA
+            $EXTRA 2>&1)
+          STATUS=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            if echo "$OUTPUT" | grep -q "ONPE aun no publica el padron real de mesas"; then
+              echo "ℹ️ ONPE aun no publica mesas reales. Se omite este ciclo sin error."
+              exit 0
+            fi
+            exit "$STATUS"
+          fi
 
       - name: Commitear resultados
         if: steps.check.outputs.complete != 'true'

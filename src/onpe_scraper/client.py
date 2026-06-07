@@ -140,12 +140,17 @@ class OnpeClient:
     # Mesa-level endpoints (require curl_cffi Chrome impersonation)       #
     # ------------------------------------------------------------------ #
 
-    def get_all_mesas(self) -> list[str]:
+    def get_all_mesas(
+        self,
+        min_real_mesas: int = _MIN_MESAS_SANITY,
+        strict: bool = True,
+    ) -> list[str]:
         """
         Fetch the static mesas asset and return deduplicated, normalized 6-digit mesa codes.
 
         During the segunda vuelta, ONPE populates this file with all ~92k mesas.
-        Returns a warning if fewer than _MIN_MESAS_SANITY are returned (election not yet published).
+        Placeholder/demo records like 0000/000000 are ignored.
+        If fewer than min_real_mesas are found, strict mode raises RuntimeError.
         """
         url = f"{ASSETS_BASE_URL}/assets/data/mesas.json"
         response = self._get_curl_session().get(url, impersonate="chrome124", timeout=self.timeout_seconds)
@@ -153,13 +158,7 @@ class OnpeClient:
         data = response.json()
         if not isinstance(data, list):
             raise ValueError(f"assets/data/mesas.json: se esperaba lista, se obtuvo {type(data)}")
-        if len(data) < _MIN_MESAS_SANITY:
-            warnings.warn(
-                f"mesas.json devolvio solo {len(data)} mesas "
-                f"(minimo esperado: {_MIN_MESAS_SANITY}). "
-                "Puede que la segunda vuelta aun no haya sido publicada por ONPE.",
-                stacklevel=2,
-            )
+
         codes: list[str] = []
         seen: set[str] = set()
         for record in data:
@@ -167,9 +166,22 @@ class OnpeClient:
             if not raw or not raw.isdigit():
                 continue
             code = raw.zfill(6)
+            if code == "000000":
+                continue
             if code not in seen:
                 seen.add(code)
                 codes.append(code)
+
+        if len(codes) < min_real_mesas:
+            message = (
+                f"mesas.json devolvio solo {len(codes)} mesas reales "
+                f"(minimo esperado: {min_real_mesas}). "
+                "ONPE aun no publica el padron real de mesas para scraping por mesa."
+            )
+            if strict:
+                raise RuntimeError(message)
+            warnings.warn(message, stacklevel=2)
+
         return codes
 
     def get_ubicaciones(self, id_eleccion: int) -> list[UbicacionData]:
