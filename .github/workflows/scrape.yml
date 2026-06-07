@@ -86,6 +86,10 @@ jobs:
               echo "ℹ️ ONPE aun no publica mesas reales. Se omite este ciclo sin error."
               exit 0
             fi
+            if echo "$OUTPUT" | grep -q "JSONDecodeError: Expecting value"; then
+              echo "ℹ️ ONPE devolvio respuesta no-JSON en este ciclo. Se omite sin error y reintenta en el siguiente schedule."
+              exit 0
+            fi
             exit "$STATUS"
           fi
 
