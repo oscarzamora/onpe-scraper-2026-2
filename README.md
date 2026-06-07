@@ -4,7 +4,7 @@
 >
 > Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadosegundavuelta.onpe.gob.pe](https://resultadosegundavuelta.onpe.gob.pe/main/resumen) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
 
-Los datos se actualizan automáticamente vía **GitHub Actions cada 5 minutos** a partir del domingo 7 de junio de 2026 a las 6 PM EST. Cualquier persona puede auditar el código, los datos y la metodología.
+Las actualizaciones se realizan mediante corridas manuales del scraper. Puedes ejecutar el flujo localmente o desde Copilot CLI y luego publicar los cambios con `git push`.
 
 ---
 
@@ -137,6 +137,29 @@ python -m src.onpe_scraper.main --modo mesas --redescubrir \
   --timeout 20 \
   --verbose
 ```
+
+### Iteración manual con Copilot CLI
+
+Si quieres actualizar el repositorio cada 5 minutos de forma manual y resumable:
+
+1. Ejecuta el scraper en modo mesas con un límite corto de tiempo:
+    ```powershell
+    python -m src.onpe_scraper.main --modo mesas --tiempo-max 4 --max-workers 5 --batch-size 200
+    ```
+2. Revisa el diff y confirma qué cambió:
+    ```powershell
+    git status --short
+    git diff --stat
+    ```
+3. Si hay cambios útiles, publica solo los datos y el estado de trabajo:
+    ```powershell
+    git add output/ work/mesas_pendientes.txt
+    git commit -m "data: <UTC_TIMESTAMP> — pendientes: <N> mesas"
+    git push
+    ```
+4. Repite el ciclo cada 5 minutos.
+
+La regla práctica es esta: si `mesas_pendientes.txt` sigue teniendo mesas, la siguiente corrida retoma desde ahí; si ya quedó vacío, el scraper se detiene hasta que ONPE publique más mesas contabilizadas.
 
 ---
 
@@ -461,6 +484,12 @@ mesas.json (si existe) o totalActas → lista de códigos (~92k)
 upsert → mesas_data.txt / votos.txt / agrupaciones.txt / locales.txt
         ↓ (al finalizar)
 mesas_pendientes.txt  ← solo las no contabilizadas
+
+Salida operativa por corrida (logs):
+- procesadas = mesas consultadas en la corrida
+- pendientes = mesas que siguen sin estado "Contabilizada"
+- errores = consultas fallidas (se reintentan en corridas siguientes)
+- nuevas contabilizadas = mesas que cambiaron a "Contabilizada" durante esa corrida
 ```
 
 **Enriquecimiento geográfico (opcional):**
@@ -479,6 +508,7 @@ python -m src.onpe_scraper.enrich_geo --force
 - **Chrome impersonation obligatoria:** todos los endpoints de ONPE retornan el SPA de Angular sin `curl_cffi` con `impersonate="chrome124"`. La librería estándar `requests` no funciona.
 - **Upsert incremental:** los TXT usan el patrón load → merge → rewrite con claves compuestas `(id_eleccion, codigo_mesa)`. Cada corrida actualiza sin duplicar.
 - **Resume automático:** `work/mesas_pendientes.txt` guarda las mesas no contabilizadas. La próxima corrida sin `--redescubrir` solo re-consulta esas.
+- **Métricas por corrida:** para auditoría, revisar en logs `procesadas`, `pendientes`, `errores` y `nuevas contabilizadas`. Un valor de `nuevas contabilizadas=0` puede ser normal si ONPE no publicó nuevas actas en ese intervalo.
 - **Retry con backoff:** `get_mesa_acta` reintenta 3 veces con espera exponencial (0.5 s, 1 s, 2 s).
 - Si ONPE cambia la forma del payload, solo hay que editar `client.py`.
 
