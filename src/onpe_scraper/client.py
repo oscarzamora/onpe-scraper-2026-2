@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import threading
 import time
 import warnings
@@ -22,7 +23,7 @@ _MIN_MESAS_SANITY = 100
 class OnpeClient:
     base_url: str = BASE_URL
     timeout_seconds: int = 20
-    max_retries: int = 3
+    max_retries: int = 5
     _thread_local: threading.local = field(
         default_factory=threading.local, init=False, repr=False, compare=False
     )
@@ -371,7 +372,8 @@ class OnpeClient:
             except Exception as exc:
                 last_exc = exc
                 if attempt < self.max_retries - 1:
-                    time.sleep(0.5 * (2**attempt))
+                    # Exponential backoff with jitter to avoid all workers retrying in lockstep.
+                    time.sleep(0.5 * (2**attempt) + random.uniform(0.0, 0.5))
         else:
             raise RuntimeError(
                 f"Mesa {codigo_mesa}: {self.max_retries} intentos fallidos"
