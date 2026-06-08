@@ -4,6 +4,7 @@ import random
 import threading
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 from urllib.parse import urlparse
@@ -17,6 +18,7 @@ from .models import AgrupacionData, MesaData, MesaResult, UbicacionData, VotoDat
 BASE_URL = "https://resultadosegundavuelta.onpe.gob.pe/presentacion-backend"
 ASSETS_BASE_URL = "https://resultadosegundavuelta.onpe.gob.pe"
 _MIN_MESAS_SANITY = 100
+_ACTAS_PAGE_SIZE = 100
 
 
 @dataclass
@@ -338,6 +340,62 @@ class OnpeClient:
                 if ubigeo3 is not None:
                     active.add(str(int(ubigeo3)).zfill(6))
         return active
+
+    def _get_actas_page(
+        self,
+        *,
+        id_ambito_geografico: int,
+        pagina: int,
+        tamanio: int = _ACTAS_PAGE_SIZE,
+        id_ubigeo: str | None = None,
+        codigo_local_votacion: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "idAmbitoGeografico": id_ambito_geografico,
+            "pagina": pagina,
+            "tamanio": tamanio,
+        }
+        if id_ubigeo is not None:
+            params["idUbigeo"] = id_ubigeo
+        if codigo_local_votacion is not None:
+            params["codigoLocalVotacion"] = codigo_local_votacion
+
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                response = self._get_curl_session().get(
+                    f"{self.base_url}/actas",
+                    params=params,
+                    impersonate="chrome124",
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 204:
+                    return {
+                        "paginaActual": pagina, "totalRegistros": 0,
+                        "totalPaginas": 0, "content": [],
+                        "contabilizada": 0, "observada": 0, "pendiente": 0,
+                    }
+                response.raise_for_status()
+                if not response.text.strip():
+                    return {
+                        "paginaActual": pagina, "totalRegistros": 0,
+                        "totalPaginas": 0, "content": [],
+                        "contabilizada": 0, "observada": 0, "pendiente": 0,
+                    }
+                payload = response.json()
+                data = payload.get("data")
+                if not isinstance(data, dict):
+                    raise ValueError(f"/actas devolvio payload inesperado: {payload}")
+                return data
+            except Exception as exc:
+                last_exc = exc
+                if attempt < self.max_retries - 1:
+                    time.sleep(0.3 * (2**attempt) + random.uniform(0.0, 0.3))
+        raise RuntimeError(f"/actas pagina={pagina}: {self.max_retries} intentos fallidos") from last_exc
+
+    def get_contabilized_mesas(self, id_eleccion: int, include_observadas: bool = True) -> list[str]:
+        """Placeholder — sequential /actas paging is too slow without a warm session."""
+        return []
 
     def get_mesa_acta(self, codigo_mesa: str, id_eleccion: int) -> MesaResult | None:
         """

@@ -158,9 +158,42 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     upsert_ubicaciones_txt(ubicaciones, output_dir / "ubicaciones.txt")
     print(f"  {len(ubicaciones)} ubigeos escritos en ubicaciones.txt")
 
-    # 3. Determine which mesas to process
+    # 3. Determine which mesas to process using delta approach:
+    #    ONPE's /actas gives us exactly which mesas are C/O; we only scrape what's new.
     pending_path = work_dir / "mesas_pendientes.txt"
-    if not args.redescubrir and pending_path.exists():
+
+    contabilized_from_onpe: list[str] = []
+    try:
+        print("Consultando /actas para obtener mesas contabilizadas...")
+        contabilized_from_onpe = client.get_contabilized_mesas(id_eleccion)
+        print(f"  {len(contabilized_from_onpe)} mesas C/O desde /actas")
+    except Exception as exc:
+        print(f"  /actas no disponible ({exc}), usando mesas_pendientes.txt")
+
+    if contabilized_from_onpe:
+        # Load what we already have scraped as Contabilizada
+        already_done: set[str] = set()
+        mesas_data_path = output_dir / "mesas_data.txt"
+        if mesas_data_path.exists():
+            with mesas_data_path.open("r", encoding="utf-8") as _f:
+                for _row in csv.DictReader(_f, delimiter="\t"):
+                    if _row.get("descripcion_estado_acta", "").casefold() == "contabilizada":
+                        already_done.add(_row["codigo_mesa"])
+
+        # Delta = contabilized by ONPE but not yet in our data
+        delta = [m for m in contabilized_from_onpe if m not in already_done]
+        # Also retry any previously errored mesas still in pending file
+        errored: list[str] = []
+        if pending_path.exists():
+            pending_set = set(load_pending_mesas_txt(pending_path))
+            onpe_set = set(contabilized_from_onpe)
+            errored = [m for m in pending_set if m in onpe_set and m not in already_done and m not in set(delta)]
+        mesas = delta + errored
+        print(
+            f"  Delta: {len(delta)} nuevas C/O + {len(errored)} reintentos con error "
+            f"(ya completadas: {len(already_done)})"
+        )
+    elif not args.redescubrir and pending_path.exists():
         mesas = load_pending_mesas_txt(pending_path)
         print(f"Reanudando desde mesas_pendientes.txt: {len(mesas)} mesas")
     else:
@@ -172,9 +205,8 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
     start_time = time.time()
 
-    # Smart ordering: prioritize mesas from districts where ONPE has published actas.
-    # This ensures the limited scraping window focuses where data actually exists.
-    if not getattr(args, "no_smart_order", False):
+    # Smart ordering only needed when falling back to pending list (no /actas delta)
+    if not contabilized_from_onpe and not getattr(args, "no_smart_order", False):
         active_ubigeos = client.get_active_ubigeos(id_eleccion)
         known_ubigeo: dict[str, str] = {}
         mesas_data_path = output_dir / "mesas_data.txt"
