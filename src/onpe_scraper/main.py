@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -70,7 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Detener scraping despues de N minutos (0 = sin limite). Util para GitHub Actions.",
     )
 
-    # --- shared args ---
+    parser.add_argument(
+        "--no-smart-order",
+        action="store_true",
+        help="Disable smart ordering (don't prioritize mesas from active districts).",
+    )
     parser.add_argument("--intervalo-segundos", type=int, default=0)
     parser.add_argument("--salida", default="output")
     parser.add_argument("--trabajo", default="work", help="Carpeta para archivos intermedios (pendientes, snapshots)")
@@ -167,8 +172,29 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
     start_time = time.time()
 
+    # Smart ordering: prioritize mesas from districts where ONPE has published actas.
+    # This ensures the limited scraping window focuses where data actually exists.
+    if not getattr(args, "no_smart_order", False):
+        active_ubigeos = client.get_active_ubigeos(id_eleccion)
+        known_ubigeo: dict[str, str] = {}
+        mesas_data_path = output_dir / "mesas_data.txt"
+        if mesas_data_path.exists():
+            with mesas_data_path.open("r", encoding="utf-8") as _f:
+                for _row in csv.DictReader(_f, delimiter="\t"):
+                    known_ubigeo[_row["codigo_mesa"]] = _row["id_ubigeo"]
+        active_pending   = [m for m in mesas if known_ubigeo.get(m, "") in active_ubigeos]
+        unknown_pending  = [m for m in mesas if m not in known_ubigeo]
+        inactive_pending = [m for m in mesas if m in known_ubigeo and known_ubigeo[m] not in active_ubigeos]
+        mesas = active_pending + unknown_pending + inactive_pending
+        print(
+            f"  Orden inteligente — distritos activos: {len(active_ubigeos)} | "
+            f"activos: {len(active_pending)} | desconocidos: {len(unknown_pending)} | "
+            f"inactivos: {len(inactive_pending)}"
+        )
+
     processed = 0
     errors = 0
+    sin_datos = 0  # mesas that returned no data (not yet published by ONPE)
     pending_after: list[str] = []
     batch_results: list[MesaResult] = []
 
@@ -185,7 +211,8 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                 try:
                     result = future.result()
                     if result is None:
-                        # Mesa not found for this election — keep pending
+                        # No data yet for this mesa — keep pending, not an error
+                        sin_datos += 1
                         pending_after.append(codigo_mesa)
                     else:
                         batch_results.append(result)
@@ -197,7 +224,9 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                     errors += 1
                     pending_after.append(codigo_mesa)
                     if args.verbose:
-                        print(f"  Error {codigo_mesa}: {exc}")
+                        cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+                        detail = f" (causa: {cause})" if cause else ""
+                        print(f"  Error {codigo_mesa}: {exc}{detail}")
 
             # Write batch to disk and clear buffer
             _flush_batch(batch_results, output_dir)
@@ -206,7 +235,7 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
             done = min(chunk_start + batch_size, len(mesas))
             print(
                 f"  {done}/{len(mesas)} mesas | "
-                f"errores={errors} | pendientes={len(pending_after)}"
+                f"errores={errors} | sin_datos={sin_datos} | pendientes={len(pending_after)}"
             )
 
             if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
@@ -221,7 +250,7 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     write_pending_mesas_txt(pending_after, pending_path)
     print(
         f"\nCompletado: procesadas={processed} errores={errors} "
-        f"pendientes={len(pending_after)}"
+        f"sin_datos={sin_datos} pendientes={len(pending_after)}"
     )
     print(f"Salidas en: {output_dir}")
 

@@ -313,11 +313,37 @@ class OnpeClient:
             votos=votos,
         )
 
+    def get_active_ubigeos(self, id_eleccion: int, min_actas: int = 1) -> set[str]:
+        """
+        Return 6-digit ubigeo codes of all districts with at least min_actas published.
+
+        Uses /resumen-general/mapa-calor at district (nivel_02) granularity, which
+        returns all ~2102 districts nationwide with their actasContabilizadas count.
+        This lets callers skip mesas in districts where ONPE has not yet published any acta.
+        """
+        try:
+            data = self._get_data(
+                "/resumen-general/mapa-calor",
+                params={"idEleccion": id_eleccion, "tipoFiltro": "ubigeo_nivel_02"},
+            )
+        except Exception:
+            return set()
+        if not isinstance(data, list):
+            return set()
+        active: set[str] = set()
+        for item in data:
+            if int(item.get("actasContabilizadas") or 0) >= min_actas:
+                ubigeo3 = item.get("ubigeoNivel03")
+                if ubigeo3 is not None:
+                    active.add(str(int(ubigeo3)).zfill(6))
+        return active
+
     def get_mesa_acta(self, codigo_mesa: str, id_eleccion: int) -> MesaResult | None:
         """
         Fetch the acta for a specific mesa and election ID.
 
-        Returns None when the mesa has no data (HTTP 204).
+        Returns None when the mesa has no data (HTTP 204 or empty body — ONPE returns
+        200 with empty body for mesas not yet published, which is NOT an error).
         Retries up to max_retries times with exponential backoff on transient errors.
         Raises RuntimeError after all retries are exhausted.
         """
@@ -336,6 +362,10 @@ class OnpeClient:
                 if response.status_code == 204:
                     return None
                 response.raise_for_status()
+                # ONPE returns HTTP 200 with an empty body for mesas not yet published.
+                # Treat this the same as 204 — not an error, just no data yet.
+                if not response.text.strip():
+                    return None
                 payload = response.json()
                 break
             except Exception as exc:
