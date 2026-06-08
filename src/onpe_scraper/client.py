@@ -394,7 +394,7 @@ class OnpeClient:
         raise RuntimeError(f"/actas pagina={pagina}: {self.max_retries} intentos fallidos") from last_exc
 
     def get_contabilized_mesas(self, id_eleccion: int, include_observadas: bool = True) -> list[str]:
-        """Placeholder — sequential /actas paging is too slow without a warm session."""
+        """Placeholder — /actas paging too slow; smart-order fallback is used instead."""
         return []
 
     def get_mesa_acta(self, codigo_mesa: str, id_eleccion: int) -> MesaResult | None:
