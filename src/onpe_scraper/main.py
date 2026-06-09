@@ -22,6 +22,10 @@ from .exporters import (
     write_snapshot_json,
 )
 from .models import MesaResult
+from .pdfs import (
+    download_acta_archivos,
+    load_acta_download_keys,
+)
 from .resumen_layer import run_resumen_geo
 
 
@@ -32,8 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--modo",
         default="resumen",
-        choices=["resumen", "mesas", "resumen-geo"],
-        help="resumen: totales y candidatos (default). mesas: extraccion autonoma por mesa. resumen-geo: capa de resumen nacional/departamentos.",
+        choices=["resumen", "mesas", "resumen-geo", "pdfs"],
+        help="resumen: totales y candidatos (default). mesas: extraccion autonoma por mesa. resumen-geo: capa de resumen nacional/departamentos. pdfs: descarga de actas PDF.",
     )
 
     # --- resumen mode args ---
@@ -90,6 +94,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--intervalo-segundos", type=int, default=0)
     parser.add_argument("--salida", default="output")
     parser.add_argument("--trabajo", default="work", help="Carpeta para archivos intermedios (pendientes, snapshots)")
+    parser.add_argument(
+        "--descargar-pdfs",
+        action="store_true",
+        help="En modo mesas, descargar tambien los PDFs de cada acta procesada.",
+    )
+    parser.add_argument(
+        "--mesas-fuente",
+        default="output/mesas_data.txt",
+        help="Archivo TSV de mesas ya procesadas para el modo pdfs (default: output/mesas_data.txt).",
+    )
+    parser.add_argument(
+        "--actas-dir",
+        default="actas",
+        help="Carpeta destino para PDFs de actas (default: actas/).",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -215,6 +234,10 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     batch_size = max(1, args.batch_size)
     tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
     start_time = time.time()
+    descargar_pdfs = getattr(args, "descargar_pdfs", False)
+    actas_dir = Path(args.actas_dir)
+    actas_track_path = work_dir / "actas_descargadas.tsv"
+    actas_downloaded_keys = load_acta_download_keys(actas_track_path) if descargar_pdfs else set()
 
     # Smart ordering only needed when falling back to pending list (no /actas delta)
     if not contabilized_from_onpe and not getattr(args, "no_smart_order", False):
@@ -259,6 +282,28 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                         pending_after.append(codigo_mesa)
                     else:
                         batch_results.append(result)
+                        if descargar_pdfs and result.mesa_data is not None:
+                            archivos = client.get_acta_archivos_by_id_acta(
+                                result.id_acta,
+                                result.codigo_mesa,
+                                result.mesa_data.id_eleccion,
+                            )
+                            downloads = download_acta_archivos(
+                                client,
+                                archivos,
+                                actas_dir,
+                                index_file=actas_track_path,
+                                downloaded_keys=actas_downloaded_keys,
+                                skip_existing=True,
+                            )
+                            if args.verbose:
+                                descargados = sum(1 for d in downloads if d.status == "downloaded")
+                                omitidos = sum(1 for d in downloads if d.status == "skipped_existing")
+                                fallidos = sum(1 for d in downloads if d.status == "failed")
+                                print(
+                                    f"  PDFs {codigo_mesa}: descargados={descargados} "
+                                    f"omitidos={omitidos} fallidos={fallidos}"
+                                )
                         estado = (result.mesa_data.descripcion_estado_acta if result.mesa_data else "")
                         # "Para envío al JEE" = votos ya capturados, en camino a C → tratar como done
                         _ESTADOS_DONE = {"contabilizada", "para envío al jee"}
@@ -300,6 +345,89 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     print(f"Salidas en: {output_dir}")
 
 
+def _load_mesas_source(mesas_file: Path) -> list[tuple[str, int]]:
+    if not mesas_file.exists():
+        raise FileNotFoundError(f"No existe el archivo de mesas fuente: {mesas_file}")
+    with mesas_file.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        if not reader.fieldnames or "codigo_mesa" not in reader.fieldnames:
+            raise ValueError(f"El archivo {mesas_file} no tiene la columna codigo_mesa")
+        rows: list[tuple[str, int]] = []
+        for row in reader:
+            codigo_mesa = str(row.get("codigo_mesa") or "").strip()
+            if not codigo_mesa:
+                continue
+            id_eleccion = int(row.get("id_eleccion") or 10)
+            rows.append((codigo_mesa.zfill(6), id_eleccion))
+    return rows
+
+
+def run_pdfs(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
+    mesas_file = Path(args.mesas_fuente)
+    actas_dir = Path(args.actas_dir)
+    actas_track_path = work_dir / "actas_descargadas.tsv"
+    downloaded_keys = load_acta_download_keys(actas_track_path)
+
+    rows = _load_mesas_source(mesas_file)
+    print(f"Mesas fuente: {mesas_file} ({len(rows)} filas)")
+    print(f"Salida PDFs: {actas_dir}")
+
+    processed = 0
+    downloaded = 0
+    skipped = 0
+    failed = 0
+    batch_size = max(1, args.batch_size)
+    tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
+    start_time = time.time()
+
+    for chunk_start in range(0, len(rows), batch_size):
+        chunk = rows[chunk_start : chunk_start + batch_size]
+        for codigo_mesa, id_eleccion in chunk:
+            try:
+                archivos = client.get_acta_archivos(codigo_mesa, id_eleccion)
+                downloads = download_acta_archivos(
+                    client,
+                    archivos,
+                    actas_dir,
+                    index_file=actas_track_path,
+                    downloaded_keys=downloaded_keys,
+                    skip_existing=True,
+                )
+                processed += 1
+                downloaded += sum(1 for d in downloads if d.status == "downloaded")
+                skipped += sum(1 for d in downloads if d.status == "skipped_existing")
+                failed += sum(1 for d in downloads if d.status == "failed")
+                if args.verbose:
+                    print(
+                        f"  {codigo_mesa}: archivos={len(downloads)} "
+                        f"descargados={sum(1 for d in downloads if d.status == 'downloaded')} "
+                        f"omitidos={sum(1 for d in downloads if d.status == 'skipped_existing')} "
+                        f"fallidos={sum(1 for d in downloads if d.status == 'failed')}"
+                    )
+            except Exception as exc:
+                failed += 1
+                if args.verbose:
+                    print(f"  Error {codigo_mesa}: {exc}")
+
+        done = min(chunk_start + batch_size, len(rows))
+        print(
+            f"  {done}/{len(rows)} mesas | descargados={downloaded} "
+            f"omitidos={skipped} fallidos={failed}"
+        )
+
+        if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
+            print(
+                f"  Tiempo maximo alcanzado ({args.tiempo_max} min). "
+                f"Se detuvo en {done}/{len(rows)} mesas."
+            )
+            break
+
+    print(
+        f"\nCompletado PDFs: mesas={processed} descargados={downloaded} "
+        f"omitidos={skipped} fallidos={failed}"
+    )
+
+
 def run_resumen_geo_mode(
     client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path
 ) -> None:
@@ -314,6 +442,8 @@ def _run_once(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
         run_mesas(client, args, output_dir, work_dir)
     elif args.modo == "resumen-geo":
         run_resumen_geo_mode(client, args, output_dir, work_dir)
+    elif args.modo == "pdfs":
+        run_pdfs(client, args, output_dir, work_dir)
     else:
         run_resumen(client, args, output_dir, work_dir)
 

@@ -102,8 +102,13 @@ def _fake_mesa(codigo_mesa: str, ubigeo: str, contabilizada: bool) -> MesaResult
         VotoData(codigo_mesa, ID_ELECCION, 2, v2,
                  round(v2 / validos * 100, 2), round(v2 / emitidos * 100, 2)),
     ]
-    return MesaResult(codigo_mesa=codigo_mesa, mesa_data=mesa_data,
-                      agrupaciones=AGRUPACIONES, votos=votos)
+    return MesaResult(
+        codigo_mesa=codigo_mesa,
+        id_acta=int(codigo_mesa),
+        mesa_data=mesa_data,
+        agrupaciones=AGRUPACIONES,
+        votos=votos,
+    )
 
 
 def _build_fake_results() -> tuple[list[MesaResult], list[str]]:

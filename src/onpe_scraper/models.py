@@ -40,6 +40,7 @@ class MesaData:
 @dataclass(slots=True)
 class MesaResult:
     codigo_mesa: str
+    id_acta: int
     mesa_data: MesaData | None
     agrupaciones: list[AgrupacionData]
     votos: list[VotoData]
@@ -64,3 +65,33 @@ class LocalData:
     ubigeo: str                  # FK → UbicacionData.ubigeo
     lat: float | None            # NULL until enriched via Nominatim
     lon: float | None            # NULL until enriched via Nominatim
+
+
+@dataclass(slots=True)
+class ActaArchivoData:
+    codigo_mesa: str
+    id_eleccion: int
+    id_acta: int
+    archivo_id: str
+    orden: int
+    tipo: int
+    nombre: str
+    descripcion: str
+    daud_fecha_creacion: int
+
+
+@dataclass(slots=True)
+class ActaPdfDownload:
+    codigo_mesa: str
+    id_eleccion: int
+    id_acta: int
+    archivo_id: str
+    orden: int
+    tipo: int
+    nombre: str
+    descripcion: str
+    output_path: str
+    bytes_written: int
+    sha256: str
+    status: str
+    error: str | None = None

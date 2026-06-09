@@ -12,7 +12,14 @@ from typing import Any
 
 from curl_cffi import requests as curl_requests
 
-from .models import AgrupacionData, MesaData, MesaResult, UbicacionData, VotoData
+from .models import (
+    ActaArchivoData,
+    AgrupacionData,
+    MesaData,
+    MesaResult,
+    UbicacionData,
+    VotoData,
+)
 
 
 BASE_URL = "https://resultadosegundavuelta.onpe.gob.pe/presentacion-backend"
@@ -90,6 +97,50 @@ class OnpeClient:
             session = self._build_curl_session()
             self._thread_local.session = session
         return session
+
+    def _get_mesa_record(self, codigo_mesa: str, id_eleccion: int) -> dict[str, Any] | None:
+        codigo_mesa = codigo_mesa.zfill(6)
+        url = f"{self.base_url}/actas/buscar/mesa"
+        last_exc: Exception | None = None
+
+        for attempt in range(self.max_retries):
+            try:
+                response = self._get_curl_session().get(
+                    url,
+                    params={"codigoMesa": codigo_mesa, "idEleccion": id_eleccion},
+                    impersonate="chrome124",
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 204:
+                    return None
+                response.raise_for_status()
+                if not response.text.strip():
+                    return None
+                payload = response.json()
+                data = payload.get("data")
+                if not isinstance(data, list):
+                    return None
+
+                matching = [
+                    a for a in data if isinstance(a, dict) and a.get("idEleccion") == id_eleccion
+                ]
+                if not matching:
+                    return None
+                if len(matching) > 1:
+                    warnings.warn(
+                        f"Mesa {codigo_mesa}: {len(matching)} actas para idEleccion={id_eleccion}, "
+                        "usando la primera.",
+                        stacklevel=2,
+                    )
+                return matching[0]
+            except Exception as exc:
+                last_exc = exc
+                if attempt < self.max_retries - 1:
+                    time.sleep(0.5 * (2**attempt) + random.uniform(0.0, 0.5))
+
+        raise RuntimeError(
+            f"Mesa {codigo_mesa}: {self.max_retries} intentos fallidos"
+        ) from last_exc
 
     # ------------------------------------------------------------------ #
     # Summary / aggregate endpoints (use plain requests)                  #
@@ -270,6 +321,7 @@ class OnpeClient:
 
     @staticmethod
     def _parse_acta(acta: dict[str, Any], codigo_mesa: str) -> MesaResult:
+        id_acta = int(acta.get("id") or 0)
         id_eleccion = int(acta.get("idEleccion") or 0)
         mesa_data = MesaData(
             codigo_mesa=codigo_mesa,
@@ -311,6 +363,7 @@ class OnpeClient:
             )
         return MesaResult(
             codigo_mesa=codigo_mesa,
+            id_acta=id_acta,
             mesa_data=mesa_data,
             agrupaciones=agrupaciones,
             votos=votos,
@@ -432,50 +485,80 @@ class OnpeClient:
         Retries up to max_retries times with exponential backoff on transient errors.
         Raises RuntimeError after all retries are exhausted.
         """
-        codigo_mesa = codigo_mesa.zfill(6)
-        url = f"{self.base_url}/actas/buscar/mesa"
-        last_exc: Exception | None = None
+        record = self._get_mesa_record(codigo_mesa, id_eleccion)
+        if record is None:
+            return None
+        return self._parse_acta(record, codigo_mesa)
 
+    def get_acta_archivos(
+        self,
+        codigo_mesa: str,
+        id_eleccion: int,
+    ) -> list[ActaArchivoData]:
+        """Fetch the list of PDF archivos for a mesa and election."""
+        record = self._get_mesa_record(codigo_mesa, id_eleccion)
+        if record is None:
+            return []
+        id_acta = int(record.get("id") or 0)
+        if id_acta <= 0:
+            return []
+        return self.get_acta_archivos_by_id_acta(id_acta, codigo_mesa, id_eleccion)
+
+    def get_acta_archivos_by_id_acta(
+        self,
+        id_acta: int,
+        codigo_mesa: str,
+        id_eleccion: int,
+    ) -> list[ActaArchivoData]:
+        """Fetch the PDF archivos from /actas/{idActa}."""
+        payload = self._request_json_get(f"{self.base_url}/actas/{id_acta}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return []
+
+        archivos = data.get("archivos")
+        if not isinstance(archivos, list):
+            return []
+
+        results: list[ActaArchivoData] = []
+        for orden, item in enumerate(archivos, start=1):
+            if not isinstance(item, dict):
+                continue
+            archivo_id = str(item.get("id") or "").strip()
+            if not archivo_id:
+                continue
+            results.append(
+                ActaArchivoData(
+                    codigo_mesa=codigo_mesa.zfill(6),
+                    id_eleccion=id_eleccion,
+                    id_acta=id_acta,
+                    archivo_id=archivo_id,
+                    orden=orden,
+                    tipo=int(item.get("tipo") or 0),
+                    nombre=str(item.get("nombre") or ""),
+                    descripcion=str(item.get("descripcion") or ""),
+                    daud_fecha_creacion=int(item.get("daudFechaCreacion") or 0),
+                )
+            )
+        return results
+
+    def get_acta_signed_url(self, archivo_id: str) -> str:
+        """Fetch the signed S3 URL for one PDF archivo."""
+        last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                response = self._get_curl_session().get(
-                    url,
-                    params={"codigoMesa": codigo_mesa, "idEleccion": id_eleccion},
-                    impersonate="chrome124",
-                    timeout=self.timeout_seconds,
+                payload = self._request_json_get(
+                    f"{self.base_url}/actas/file",
+                    params={"id": archivo_id},
                 )
-                if response.status_code == 204:
-                    return None
-                response.raise_for_status()
-                # ONPE returns HTTP 200 with an empty body for mesas not yet published.
-                # Treat this the same as 204 — not an error, just no data yet.
-                if not response.text.strip():
-                    return None
-                payload = response.json()
-                break
+                data = payload.get("data")
+                if not isinstance(data, str) or not data.startswith("https://"):
+                    raise ValueError(f"URL firmada invalida para archivo {archivo_id}: {data!r}")
+                return data
             except Exception as exc:
                 last_exc = exc
                 if attempt < self.max_retries - 1:
-                    # Exponential backoff with jitter to avoid all workers retrying in lockstep.
                     time.sleep(0.5 * (2**attempt) + random.uniform(0.0, 0.5))
-        else:
-            raise RuntimeError(
-                f"Mesa {codigo_mesa}: {self.max_retries} intentos fallidos"
-            ) from last_exc
-
-        data = payload.get("data")
-        if not isinstance(data, list):
-            return None
-
-        matching = [
-            a for a in data if isinstance(a, dict) and a.get("idEleccion") == id_eleccion
-        ]
-        if not matching:
-            return None
-        if len(matching) > 1:
-            warnings.warn(
-                f"Mesa {codigo_mesa}: {len(matching)} actas para idEleccion={id_eleccion}, "
-                "usando la primera.",
-                stacklevel=2,
-            )
-        return self._parse_acta(matching[0], codigo_mesa)
+        raise RuntimeError(
+            f"archivo {archivo_id}: {self.max_retries} intentos fallidos"
+        ) from last_exc
