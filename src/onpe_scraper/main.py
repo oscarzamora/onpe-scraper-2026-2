@@ -282,32 +282,38 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                         pending_after.append(codigo_mesa)
                     else:
                         batch_results.append(result)
-                        if descargar_pdfs and result.mesa_data is not None:
-                            archivos = client.get_acta_archivos_by_id_acta(
-                                result.id_acta,
-                                result.codigo_mesa,
-                                result.mesa_data.id_eleccion,
-                            )
-                            downloads = download_acta_archivos(
-                                client,
-                                archivos,
-                                actas_dir,
-                                index_file=actas_track_path,
-                                downloaded_keys=actas_downloaded_keys,
-                                skip_existing=True,
-                            )
-                            if args.verbose:
-                                descargados = sum(1 for d in downloads if d.status == "downloaded")
-                                omitidos = sum(1 for d in downloads if d.status == "skipped_existing")
-                                fallidos = sum(1 for d in downloads if d.status == "failed")
-                                print(
-                                    f"  PDFs {codigo_mesa}: descargados={descargados} "
-                                    f"omitidos={omitidos} fallidos={fallidos}"
-                                )
                         estado = (result.mesa_data.descripcion_estado_acta if result.mesa_data else "")
                         # "Para envío al JEE" = votos ya capturados, en camino a C → tratar como done
                         _ESTADOS_DONE = {"contabilizada", "para envío al jee"}
-                        if estado.casefold() not in _ESTADOS_DONE:
+                        is_done = estado.casefold() in _ESTADOS_DONE
+                        # Only download PDFs when the mesa is done (C or E) — avoids extra API calls for P mesas
+                        if descargar_pdfs and is_done and result.mesa_data is not None:
+                            try:
+                                archivos = client.get_acta_archivos_by_id_acta(
+                                    result.id_acta,
+                                    result.codigo_mesa,
+                                    result.mesa_data.id_eleccion,
+                                )
+                                downloads = download_acta_archivos(
+                                    client,
+                                    archivos,
+                                    actas_dir,
+                                    index_file=actas_track_path,
+                                    downloaded_keys=actas_downloaded_keys,
+                                    skip_existing=True,
+                                )
+                                if args.verbose:
+                                    descargados = sum(1 for d in downloads if d.status == "downloaded")
+                                    omitidos = sum(1 for d in downloads if d.status == "skipped_existing")
+                                    fallidos = sum(1 for d in downloads if d.status == "failed")
+                                    print(
+                                        f"  PDFs {codigo_mesa}: descargados={descargados} "
+                                        f"omitidos={omitidos} fallidos={fallidos}"
+                                    )
+                            except Exception as pdf_exc:
+                                if args.verbose:
+                                    print(f"  PDF error {codigo_mesa}: {pdf_exc}")
+                        if not is_done:
                             pending_after.append(codigo_mesa)
                     processed += 1
                 except Exception as exc:

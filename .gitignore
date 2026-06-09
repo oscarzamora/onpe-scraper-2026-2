@@ -7,6 +7,8 @@ venv/
 work/*
 !work/mesas_pendientes.txt
 !work/desconocidos.txt
+!work/actas_descargadas.tsv
 # No trackear PDFs de actas ni subdirectorios de mesa
+actas/
 output/mesa_*/
 output/**/*.pdf
