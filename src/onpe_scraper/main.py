@@ -260,7 +260,9 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
                     else:
                         batch_results.append(result)
                         estado = (result.mesa_data.descripcion_estado_acta if result.mesa_data else "")
-                        if estado.casefold() != "contabilizada":
+                        # "Para envío al JEE" = votos ya capturados, en camino a C → tratar como done
+                        _ESTADOS_DONE = {"contabilizada", "para envío al jee"}
+                        if estado.casefold() not in _ESTADOS_DONE:
                             pending_after.append(codigo_mesa)
                     processed += 1
                 except Exception as exc:
