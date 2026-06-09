@@ -14,7 +14,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	130000	LAMBAYEQUE	3577	99.638	onpe_api
 10	140000	LIMA	28333	96.875	onpe_api
 10	150000	LORETO	2455	91.027	onpe_api
-10	160000	MADRE DE DIOS	499	98.422	onpe_api
+10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
 10	180000	PASCO	788	98.254	onpe_api
 10	190000	PIURA	5217	98.788	onpe_api
