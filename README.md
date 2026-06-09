@@ -137,9 +137,15 @@ python -m src.onpe_scraper.main --modo mesas --redescubrir \
   --timeout 20 \
   --verbose
 
-# Descargar PDFs de actas junto con el scraping de mesas
-python -m src.onpe_scraper.main --modo mesas --descargar-pdfs --actas-dir acta
+# Descarga de PDFs: OFF por defecto. Activar con --descargar-pdfs (opcional)
+python -m src.onpe_scraper.main --modo mesas --descargar-pdfs --actas-dir actas
 ```
+
+> **Nota:** La descarga de PDFs de actas es **opcional y está desactivada por defecto**.
+> Añadir `--descargar-pdfs` descarga los PDFs de cada mesa que se contabilice (C/E) durante
+> la misma corrida, y los guarda en `actas/<prefijo>/` (e.g. `actas/04/040100-1.pdf`).
+> El índice incremental se guarda en `work/actas_descargadas.tsv`.
+> Si omites el flag, el scraper funciona igual sin descargar nada.
 
 ### Modo pdfs — descarga de actas ya procesadas
 
