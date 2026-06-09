@@ -316,6 +316,32 @@ class OnpeClient:
             votos=votos,
         )
 
+    def get_mapa_calor(
+        self,
+        id_eleccion: int,
+        tipo_filtro: str = "ubigeo_nivel_02",
+    ) -> list[dict[str, Any]]:
+        """Fetch heat-map data at the requested geographic level (nivel_01=dept, nivel_02=dist)."""
+        try:
+            data = self._get_data(
+                "/resumen-general/mapa-calor",
+                params={"idEleccion": id_eleccion, "tipoFiltro": tipo_filtro},
+            )
+        except Exception:
+            return []
+        return data if isinstance(data, list) else []
+
+    def get_participacion_ubigeos(self, id_eleccion: int) -> list[dict[str, Any]]:
+        """Fetch voter participation totals by department from ONPE."""
+        try:
+            data = self._get_data(
+                "/participacion-ciudadana/ubigeos-total",
+                params={"idEleccion": id_eleccion},
+            )
+        except Exception:
+            return []
+        return data if isinstance(data, list) else []
+
     def get_active_ubigeos(self, id_eleccion: int, min_actas: int = 1) -> set[str]:
         """
         Return 6-digit ubigeo codes of all districts with at least min_actas published.

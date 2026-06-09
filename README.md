@@ -138,7 +138,24 @@ python -m src.onpe_scraper.main --modo mesas --redescubrir \
   --verbose
 ```
 
-### Iteración manual con Copilot CLI
+### Modo resumen-geo — totales oficiales por geografía
+
+```powershell
+# Primera ejecución: full build (genera todos los archivos resumen/)
+python -m src.onpe_scraper.main --modo resumen-geo --id-eleccion 10 --resumen-full
+
+# Ejecuciones siguientes: delta (auto-detecta si output/ cambió)
+python -m src.onpe_scraper.main --modo resumen-geo --id-eleccion 10
+```
+
+Produce 5 archivos en `resumen/`:
+- `resumen_nacional.txt` — totales oficiales ONPE (candidatos, % votos, cobertura nacional)
+- `resumen_departamentos.txt` — votos por candidato × departamento (bottom-up de mesas locales)
+- `resumen_provincias.txt` — votos por candidato × provincia (bottom-up de mesas locales)
+- `resumen_cobertura_departamentos.txt` — % actas contabilizadas por departamento (ONPE API)
+- `resumen_participacion_departamentos.txt` — % participación por departamento (ONPE API)
+
+
 
 Si quieres actualizar el repositorio cada 5 minutos de forma manual y resumable:
 
@@ -166,7 +183,7 @@ La regla práctica es esta: si `mesas_pendientes.txt` sigue teniendo mesas, la s
 ## Salidas
 
 ```
-output/                          ← archivos analíticos (tab-delimited UTF-8)
+output/                          ← archivos analíticos por mesa (tab-delimited UTF-8)
   mesas_data.txt                 ← una fila por mesa de votación
   votos.txt                      ← votos por mesa × partido
   agrupaciones.txt               ← catálogo de agrupaciones políticas
@@ -175,8 +192,16 @@ output/                          ← archivos analíticos (tab-delimited UTF-8)
   locales.txt                    ← locales de votación con lat/lon (opcional)
     locales_reasignados_segunda_vuelta_2026.txt ← feed oficial de locales reasignados para 2da vuelta
 
+resumen/                         ← capa de resumen oficial (tab-delimited UTF-8)
+  resumen_nacional.txt           ← totales nacionales desde ONPE API (candidatos + cobertura)
+  resumen_departamentos.txt      ← votos por candidato × departamento (bottom-up)
+  resumen_provincias.txt         ← votos por candidato × provincia (bottom-up)
+  resumen_cobertura_departamentos.txt ← % actas contabilizadas por departamento (ONPE API)
+  resumen_participacion_departamentos.txt ← % participación ciudadana por departamento
+
 work/                            ← estado interno del scraper (no commitear)
   mesas_pendientes.txt           ← mesas aún no contabilizadas (resume file)
+  resumen_state.txt              ← estado incremental del resumen (full/delta)
   snapshot_YYYYMMDDTHHMMSSZ.json ← dump crudo de la API por cada corrida
 ```
 
@@ -263,6 +288,67 @@ La relación principal para analítica es `nombre_local_votacion` (origen) → `
 | `motivo` | str | Motivo de la reasignación |
 | `mesas_a_reasignar` | int | Número de mesas afectadas |
 | `estado_parseo` | str | Calidad del parseo OCR (`OK`, `INCOMPLETO_OCR`, `OCR_REVISAR`) |
+
+#### `resumen/resumen_nacional.txt`
+Totales oficiales ONPE directamente desde la API — siempre la fuente más actualizada.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id_eleccion` | int | ID de elección (10 = segunda vuelta 2026) |
+| `id_ambito_geografico` | int | 1 = Perú |
+| `partido_id` | int | FK → agrupaciones (vacío para nulos/blancos) |
+| `nombre_candidato` | str | Nombre del candidato (o "VOTOS NULOS" / "VOTOS EN BLANCO") |
+| `nombre_agrupacion_politica` | str | Nombre del partido |
+| `votos_validos` | int | Votos válidos totales |
+| `pct_votos_validos` | float | % sobre votos válidos |
+| `pct_votos_emitidos` | float | % sobre votos emitidos |
+| `actas_contabilizadas_pct` | float | % de actas contabilizadas |
+| `contabilizadas` | int | Número de actas contabilizadas |
+| `total_actas` | int | Total de actas del padrón |
+| `participacion_ciudadana` | float | % participación ciudadana |
+| `fecha_actualizacion` | str (ISO) | Timestamp oficial ONPE |
+| `fuente` | str | `onpe_api` |
+
+#### `resumen/resumen_departamentos.txt` y `resumen/resumen_provincias.txt`
+Agregación bottom-up desde los datos de mesas raspadas localmente. Incluye todos los departamentos / provincias con al menos una mesa contabilizada.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id_eleccion` | int | ID de elección |
+| `ubigeo` | str(6) | Código ubigeo de departamento (`DD0000`) o provincia (`DDPP00`) |
+| `partido_id` | int | FK → agrupaciones |
+| `nombre_candidato` | str | Nombre del partido/candidato |
+| `nombre_agrupacion_politica` | str | Nombre del partido |
+| `votos_validos` | int | Votos absolutos en ese geo |
+| `pct_votos_validos` | float | % sobre total válidos del geo |
+| `pct_votos_emitidos` | float | % sobre total emitidos del geo |
+| `total_votos_validos_geo` | int | Total votos válidos del geo (denominador) |
+| `total_votos_emitidos_geo` | int | Total votos emitidos del geo (denominador) |
+| `fuente` | str | `local_agregado` |
+
+#### `resumen/resumen_cobertura_departamentos.txt`
+Progreso de escrutinio por departamento. Fuente: ONPE API `/resumen-general/mapa-calor`.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id_eleccion` | int | ID de elección |
+| `ubigeo` | str(6) | Código departamento (`DD0000`) |
+| `nombre_departamento` | str | Nombre del departamento |
+| `actas_contabilizadas` | int | Actas contabilizadas en el departamento |
+| `pct_actas_contabilizadas` | float | % cobertura del escrutinio |
+| `fuente` | str | `onpe_api` |
+
+#### `resumen/resumen_participacion_departamentos.txt`
+Participación ciudadana por departamento. Fuente: ONPE API `/participacion-ciudadana/ubigeos-total`.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id_eleccion` | int | ID de elección |
+| `ubigeo` | str(6) | Código departamento (`DD0000`) |
+| `nombre_departamento` | str | Nombre del departamento |
+| `pct_asistentes` | float | % de electores que votaron |
+| `pct_ausentes` | float | % de ausentes |
+| `fuente` | str | `onpe_api` |
 
 ### Modelo relacional
 
@@ -466,11 +552,12 @@ evolucion.plot(title="Evolución % votos válidos — Segunda Vuelta 2026")
 
 ```
 src/onpe_scraper/
-├── models.py      # Dataclasses: MesaData, VotoData, AgrupacionData, UbicacionData, LocalData, MesaResult
-├── client.py      # OnpeClient — toda la lógica HTTP (curl_cffi + Chrome impersonation)
-├── exporters.py   # Escritura de archivos: upsert TSV, snapshot JSON
-├── main.py        # CLI (argparse): modos resumen / mesas, ThreadPoolExecutor
-└── enrich_geo.py  # Geocodificador opcional vía Nominatim (OpenStreetMap)
+├── models.py          # Dataclasses: MesaData, VotoData, AgrupacionData, UbicacionData, LocalData, MesaResult
+├── client.py          # OnpeClient — toda la lógica HTTP (curl_cffi + Chrome impersonation)
+├── exporters.py       # Escritura de archivos: upsert TSV, snapshot JSON
+├── resumen_layer.py   # Capa de resumen: nacional (ONPE API), departamentos/provincias (bottom-up local)
+├── main.py            # CLI (argparse): modos resumen / mesas / resumen-geo, ThreadPoolExecutor
+└── enrich_geo.py      # Geocodificador opcional vía Nominatim (OpenStreetMap)
 ```
 
 **Flujo modo mesas:**

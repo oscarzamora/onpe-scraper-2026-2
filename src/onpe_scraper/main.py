@@ -22,6 +22,7 @@ from .exporters import (
     write_snapshot_json,
 )
 from .models import MesaResult
+from .resumen_layer import run_resumen_geo
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--modo",
         default="resumen",
-        choices=["resumen", "mesas"],
-        help="resumen: totales y candidatos (default). mesas: extraccion autonoma por mesa.",
+        choices=["resumen", "mesas", "resumen-geo"],
+        help="resumen: totales y candidatos (default). mesas: extraccion autonoma por mesa. resumen-geo: capa de resumen nacional/departamentos.",
     )
 
     # --- resumen mode args ---
@@ -75,6 +76,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-smart-order",
         action="store_true",
         help="Disable smart ordering (don't prioritize mesas from active districts).",
+    )
+    parser.add_argument(
+        "--resumen-full",
+        action="store_true",
+        help="Forzar full build del resumen (ignora estado incremental previo).",
+    )
+    parser.add_argument(
+        "--resumen-dir",
+        default="resumen",
+        help="Carpeta de salida para archivos de resumen (default: resumen/).",
     )
     parser.add_argument("--intervalo-segundos", type=int, default=0)
     parser.add_argument("--salida", default="output")
@@ -287,9 +298,20 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     print(f"Salidas en: {output_dir}")
 
 
+def run_resumen_geo_mode(
+    client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path
+) -> None:
+    id_eleccion = args.id_eleccion or client.get_active_presidential_election_id()
+    resumen_dir = Path(args.resumen_dir)
+    force_full = getattr(args, "resumen_full", False)
+    run_resumen_geo(client, id_eleccion, output_dir, resumen_dir, work_dir, force_full=force_full)
+
+
 def _run_once(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
     if args.modo == "mesas":
         run_mesas(client, args, output_dir, work_dir)
+    elif args.modo == "resumen-geo":
+        run_resumen_geo_mode(client, args, output_dir, work_dir)
     else:
         run_resumen(client, args, output_dir, work_dir)
 
