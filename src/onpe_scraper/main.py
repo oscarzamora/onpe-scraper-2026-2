@@ -383,50 +383,57 @@ def run_pdfs(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wor
     skipped = 0
     failed = 0
     batch_size = max(1, args.batch_size)
+    max_workers = max(1, min(args.max_workers, 5))
     tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
     start_time = time.time()
 
-    for chunk_start in range(0, len(rows), batch_size):
-        chunk = rows[chunk_start : chunk_start + batch_size]
-        for codigo_mesa, id_eleccion in chunk:
-            try:
-                archivos = client.get_acta_archivos(codigo_mesa, id_eleccion)
-                downloads = download_acta_archivos(
-                    client,
-                    archivos,
-                    actas_dir,
-                    index_file=actas_track_path,
-                    downloaded_keys=downloaded_keys,
-                    skip_existing=True,
-                )
-                processed += 1
-                downloaded += sum(1 for d in downloads if d.status == "downloaded")
-                skipped += sum(1 for d in downloads if d.status == "skipped_existing")
-                failed += sum(1 for d in downloads if d.status == "failed")
-                if args.verbose:
-                    print(
-                        f"  {codigo_mesa}: archivos={len(downloads)} "
-                        f"descargados={sum(1 for d in downloads if d.status == 'downloaded')} "
-                        f"omitidos={sum(1 for d in downloads if d.status == 'skipped_existing')} "
-                        f"fallidos={sum(1 for d in downloads if d.status == 'failed')}"
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for chunk_start in range(0, len(rows), batch_size):
+            chunk = rows[chunk_start : chunk_start + batch_size]
+            futures = {
+                executor.submit(client.get_acta_archivos, codigo_mesa, id_eleccion): (codigo_mesa, id_eleccion)
+                for codigo_mesa, id_eleccion in chunk
+            }
+            for future in as_completed(futures):
+                codigo_mesa, id_eleccion = futures[future]
+                try:
+                    archivos = future.result()
+                    downloads = download_acta_archivos(
+                        client,
+                        archivos,
+                        actas_dir,
+                        index_file=actas_track_path,
+                        downloaded_keys=downloaded_keys,
+                        skip_existing=True,
                     )
-            except Exception as exc:
-                failed += 1
-                if args.verbose:
-                    print(f"  Error {codigo_mesa}: {exc}")
+                    processed += 1
+                    downloaded += sum(1 for d in downloads if d.status == "downloaded")
+                    skipped += sum(1 for d in downloads if d.status == "skipped_existing")
+                    failed += sum(1 for d in downloads if d.status == "failed")
+                    if args.verbose:
+                        print(
+                            f"  {codigo_mesa}: archivos={len(downloads)} "
+                            f"descargados={sum(1 for d in downloads if d.status == 'downloaded')} "
+                            f"omitidos={sum(1 for d in downloads if d.status == 'skipped_existing')} "
+                            f"fallidos={sum(1 for d in downloads if d.status == 'failed')}"
+                        )
+                except Exception as exc:
+                    failed += 1
+                    if args.verbose:
+                        print(f"  Error {codigo_mesa}: {exc}")
 
-        done = min(chunk_start + batch_size, len(rows))
-        print(
-            f"  {done}/{len(rows)} mesas | descargados={downloaded} "
-            f"omitidos={skipped} fallidos={failed}"
-        )
-
-        if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
+            done = min(chunk_start + batch_size, len(rows))
             print(
-                f"  Tiempo maximo alcanzado ({args.tiempo_max} min). "
-                f"Se detuvo en {done}/{len(rows)} mesas."
+                f"  {done}/{len(rows)} mesas | descargados={downloaded} "
+                f"omitidos={skipped} fallidos={failed}"
             )
-            break
+
+            if tiempo_max_s > 0 and (time.time() - start_time) >= tiempo_max_s:
+                print(
+                    f"  Tiempo maximo alcanzado ({args.tiempo_max} min). "
+                    f"Se detuvo en {done}/{len(rows)} mesas."
+                )
+                break
 
     print(
         f"\nCompletado PDFs: mesas={processed} descargados={downloaded} "
