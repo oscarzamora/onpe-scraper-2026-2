@@ -9,6 +9,7 @@ work/*
 !work/desconocidos.txt
 !work/actas_descargadas.tsv
 # No trackear PDFs de actas ni subdirectorios de mesa
+acta/
 actas/
 output/mesa_*/
 output/**/*.pdf

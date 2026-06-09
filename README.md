@@ -138,17 +138,17 @@ python -m src.onpe_scraper.main --modo mesas --redescubrir \
   --verbose
 
 # Descargar PDFs de actas junto con el scraping de mesas
-python -m src.onpe_scraper.main --modo mesas --descargar-pdfs
+python -m src.onpe_scraper.main --modo mesas --descargar-pdfs --actas-dir acta
 ```
 
 ### Modo pdfs — descarga de actas ya procesadas
 
 ```powershell
 # Bulk de mesas ya contabilizadas
-python -m src.onpe_scraper.main --modo pdfs --mesas-fuente work/mesas_c_contabilizadas.tsv --actas-dir actas
+python -m src.onpe_scraper.main --modo pdfs --mesas-fuente work/mesas_c_contabilizadas.tsv --actas-dir acta
 
 # Fuente alternativa: cualquier TSV con columnas codigo_mesa e id_eleccion
-python -m src.onpe_scraper.main --modo pdfs --mesas-fuente output/mesas_data.txt --actas-dir actas
+python -m src.onpe_scraper.main --modo pdfs --mesas-fuente output/mesas_data.txt --actas-dir acta
 ```
 
 ### Modo resumen-geo — totales oficiales por geografía
@@ -217,15 +217,15 @@ work/                            ← estado interno del scraper (no commitear)
   resumen_state.txt              ← estado incremental del resumen (full/delta)
   snapshot_YYYYMMDDTHHMMSSZ.json ← dump crudo de la API por cada corrida
 
-actas/                           ← PDFs descargados de ONPE
-  040100-1.pdf                  ← acta 1 de la mesa 040100
-  040100-2.pdf                  ← acta 2 de la mesa 040100
+acta/                            ← PDFs descargados de ONPE
+  04/040100-1.pdf                ← acta 1 de la mesa 040100
+  04/040100-2.pdf                ← acta 2 de la mesa 040100
 ```
 
 ### Código que implementa esta capacidad
 
 - `src/onpe_scraper/client.py` — resuelve `idActa`, extrae `archivos[]` y firma la URL del PDF.
-- `src/onpe_scraper/pdfs.py` — descarga el PDF, valida `%PDF`, calcula `sha256` y escribe el índice incremental.
+- `src/onpe_scraper/pdfs.py` — descarga el PDF, valida `%PDF`, calcula `sha256`, migra el layout plano y escribe el índice incremental.
 - `src/onpe_scraper/main.py` — expone `--modo pdfs`, `--actas-dir` y `--descargar-pdfs`.
 
 ### Esquema de tablas

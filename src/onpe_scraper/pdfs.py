@@ -29,8 +29,32 @@ _TRACK_FIELDS = [
 ]
 
 
+def acta_bucket(codigo_mesa: str) -> str:
+    return codigo_mesa.zfill(6)[:2]
+
+
 def acta_pdf_path(output_dir: str | Path, codigo_mesa: str, orden: int) -> Path:
-    return Path(output_dir) / f"{codigo_mesa}-{orden}.pdf"
+    base = Path(output_dir)
+    return base / acta_bucket(codigo_mesa) / f"{codigo_mesa}-{orden}.pdf"
+
+
+def migrate_flat_acta_tree(output_dir: str | Path) -> None:
+    base = Path(output_dir)
+    if not base.exists():
+        return
+    for path in base.glob("*.pdf"):
+        stem = path.stem
+        if "-" not in stem:
+            continue
+        codigo_mesa, _, suffix = stem.partition("-")
+        if not codigo_mesa.isdigit():
+            continue
+        target = acta_pdf_path(base, codigo_mesa, int(suffix) if suffix.isdigit() else 0)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            path.unlink(missing_ok=True)
+        else:
+            path.replace(target)
 
 
 def load_acta_download_keys(index_file: str | Path) -> set[tuple[str, str, str]]:

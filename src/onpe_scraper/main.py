@@ -24,6 +24,7 @@ from .exporters import (
 from .models import MesaResult
 from .pdfs import (
     download_acta_archivos,
+    migrate_flat_acta_tree,
     load_acta_download_keys,
 )
 from .resumen_layer import run_resumen_geo
@@ -106,8 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--actas-dir",
-        default="actas",
-        help="Carpeta destino para PDFs de actas (default: actas/).",
+        default="acta",
+        help="Carpeta destino para PDFs de actas (default: acta/).",
     )
     parser.add_argument("--verbose", action="store_true")
     return parser
@@ -371,6 +372,7 @@ def _load_mesas_source(mesas_file: Path) -> list[tuple[str, int]]:
 def run_pdfs(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
     mesas_file = Path(args.mesas_fuente)
     actas_dir = Path(args.actas_dir)
+    migrate_flat_acta_tree(actas_dir)
     actas_track_path = work_dir / "actas_descargadas.tsv"
     downloaded_keys = load_acta_download_keys(actas_track_path)
 
