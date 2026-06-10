@@ -27,5 +27,5 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	910000		5	100.0	onpe_api
 10	920000		1014	66.887	onpe_api
 10	930000		75	70.093	onpe_api
-10	940000		602	74.597	onpe_api
+10	940000		604	74.845	onpe_api
 10	950000		20	95.238	onpe_api
