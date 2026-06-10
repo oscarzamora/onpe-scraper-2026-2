@@ -13,7 +13,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	120000	LA LIBERTAD	5266	99.321	onpe_api
 10	130000	LAMBAYEQUE	3577	99.638	onpe_api
 10	140000	LIMA	28332	96.871	onpe_api
-10	150000	LORETO	2534	93.956	onpe_api
+10	150000	LORETO	2546	94.401	onpe_api
 10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
 10	180000	PASCO	788	98.254	onpe_api
@@ -26,6 +26,6 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	250000	UCAYALI	1521	97.251	onpe_api
 10	910000		5	100.0	onpe_api
 10	920000		665	43.865	onpe_api
-10	930000		8	88.889	onpe_api
+10	930000		9	100.0	onpe_api
 10	940000		173	21.571	onpe_api
 10	950000		17	94.444	onpe_api
