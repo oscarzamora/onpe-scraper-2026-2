@@ -25,7 +25,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	240000	CALLAO	2829	97.619	onpe_api
 10	250000	UCAYALI	1521	97.251	onpe_api
 10	910000		5	100.0	onpe_api
-10	920000		987	65.106	onpe_api
+10	920000		1012	66.755	onpe_api
 10	930000		75	70.093	onpe_api
-10	940000		528	65.428	onpe_api
+10	940000		601	74.473	onpe_api
 10	950000		20	95.238	onpe_api
