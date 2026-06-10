@@ -22,7 +22,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	210000	SAN MARTÍN	2520	99.448	onpe_api
 10	220000	TACNA	1028	98.751	onpe_api
 10	230000	TUMBES	630	99.684	onpe_api
-10	240000	CALLAO	2829	97.619	onpe_api
+10	240000	CALLAO	2830	97.654	onpe_api
 10	250000	UCAYALI	1521	97.251	onpe_api
 10	910000		5	100.0	onpe_api
 10	920000		1268	80.867	onpe_api
