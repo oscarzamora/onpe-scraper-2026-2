@@ -231,7 +231,7 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
         mesas = client.get_all_mesas(election_id=id_eleccion)
         print(f"Mesas descubiertas desde mesas.json: {len(mesas)}")
 
-    max_workers = max(1, min(args.max_workers, 5))
+    max_workers = max(1, min(args.max_workers, 32))
     batch_size = max(1, args.batch_size)
     tiempo_max_s = getattr(args, "tiempo_max", 0) * 60
     start_time = time.time()
