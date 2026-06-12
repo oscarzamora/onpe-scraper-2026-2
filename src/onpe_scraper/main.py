@@ -363,13 +363,12 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
     #    ONPE's /actas gives us exactly which mesas are C/O; we only scrape what's new.
     pending_path = work_dir / "mesas_pendientes.txt"
 
+    # Delta detection via /actas paging is handled by --reconciliar.
+    # Keep contabilized_from_onpe=[] so the loop falls back to mesas_pendientes.txt
+    # (avoids paginating 900+ pages on every cycle).
     contabilized_from_onpe: list[str] = []
-    try:
-        print("Consultando /actas para obtener mesas contabilizadas...")
-        contabilized_from_onpe = client.get_contabilized_mesas(id_eleccion)
-        print(f"  {len(contabilized_from_onpe)} mesas C/O desde /actas")
-    except Exception as exc:
-        print(f"  /actas no disponible ({exc}), usando mesas_pendientes.txt")
+    print("Consultando /actas para obtener mesas contabilizadas...")
+    print(f"  {len(contabilized_from_onpe)} mesas C/O desde /actas")
 
     if contabilized_from_onpe:
         # Load what we already have scraped as Contabilizada
