@@ -176,26 +176,43 @@ Produce 5 archivos en `resumen/`:
 
 
 
-Si quieres actualizar el repositorio cada 5 minutos de forma manual y resumable:
+### Loop automático — `scripts/loop.ps1`
 
-1. Ejecuta el scraper en modo mesas con un límite corto de tiempo:
-    ```powershell
-    python -m src.onpe_scraper.main --modo mesas --tiempo-max 4 --max-workers 5 --batch-size 200
-    ```
-2. Revisa el diff y confirma qué cambió:
-    ```powershell
-    git status --short
-    git diff --stat
-    ```
-3. Si hay cambios útiles, publica solo los datos y el estado de trabajo:
-    ```powershell
-    git add output/ work/mesas_pendientes.txt
-    git commit -m "data: <UTC_TIMESTAMP> — pendientes: <N> mesas"
-    git push
-    ```
-4. Repite el ciclo cada 5 minutos.
+El script `scripts/loop.ps1` replica el ciclo completo que corre Copilot CLI de forma autónoma:
+**mesas → reconciliación E→C → resumen-geo → git commit + push → sleep**.
 
-La regla práctica es esta: si `mesas_pendientes.txt` sigue teniendo mesas, la siguiente corrida retoma desde ahí; si ya quedó vacío, el scraper se detiene hasta que ONPE publique más mesas contabilizadas.
+```powershell
+# Arranque básico (intervalo 20 min, con reconciliación, sin PDFs)
+.\scripts\loop.ps1
+
+# Solo 1 ciclo (para probar o correr manualmente una vez)
+.\scripts\loop.ps1 -SoloCiclos 1
+
+# Con descarga de PDFs de actas
+.\scripts\loop.ps1 -DescargarPdfs
+
+# Intervalo personalizado (ej. 30 min)
+.\scripts\loop.ps1 -IntervaloMinutos 30
+
+# Sin reconciliación, intervalo corto
+.\scripts\loop.ps1 -Reconciliar:$false -IntervaloMinutos 5
+```
+
+**Parámetros principales:**
+
+| Parámetro | Default | Descripción |
+|---|---|---|
+| `-IdEleccion` | `10` | ID de elección ONPE (segunda vuelta 2026) |
+| `-IntervaloMinutos` | `20` | Minutos de espera entre ciclos |
+| `-MaxWorkers` | `5` | Workers paralelos para scraping de mesas |
+| `-BatchSize` | `200` | Mesas por lote antes de flush a disco |
+| `-DescargarPdfs` | off | Descarga PDFs de actas contabilizadas |
+| `-Reconciliar` | on | Detecta y re-consulta mesas E→C cada ciclo |
+| `-MaxPaginasReconciliacion` | `50` | Páginas máximas a paginar en `/actas` |
+| `-SoloCiclos` | `0` (∞) | Correr solo N ciclos y salir |
+| `-CicloInicial` | `1` | Número inicial de ciclo (solo cosmético) |
+
+El script se puede interrumpir con **Ctrl+C** en cualquier momento y retoma automáticamente desde `work/mesas_pendientes.txt` en la siguiente ejecución.
 
 ---
 
