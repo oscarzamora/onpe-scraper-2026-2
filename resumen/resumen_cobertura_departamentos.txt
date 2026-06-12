@@ -12,7 +12,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	110000	JUNÍN	3664	99.268	onpe_api
 10	120000	LA LIBERTAD	5268	99.359	onpe_api
 10	130000	LAMBAYEQUE	3577	99.638	onpe_api
-10	140000	LIMA	28340	96.899	onpe_api
+10	140000	LIMA	28343	96.909	onpe_api
 10	150000	LORETO	2655	98.443	onpe_api
 10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
