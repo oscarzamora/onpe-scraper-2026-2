@@ -348,6 +348,7 @@ def _write_reconciliacion_estado(work_dir: Path, stats: dict[str, int]) -> None:
 
 
 
+def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
     # 1. Detect election
     id_eleccion = args.id_eleccion or client.get_active_presidential_election_id()
     print(f"idEleccion: {id_eleccion}")
