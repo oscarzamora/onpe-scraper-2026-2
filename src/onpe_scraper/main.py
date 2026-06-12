@@ -124,8 +124,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-reconciliacion-mesas",
         type=int,
-        default=2000,
-        help="Cap de mesas a re-consultar por ciclo de reconciliacion (default: 2000).",
+        default=500,
+        help="Cap de mesas a re-consultar por ciclo de reconciliacion (default: 500).",
     )
     parser.add_argument(
         "--max-paginas-reconciliacion",
@@ -313,7 +313,7 @@ def _run_reconciliacion(
         for future in as_completed(futures):
             codigo_mesa = futures[future]
             try:
-                result = future.result()
+                result = future.result(timeout=30)
                 if result is not None:
                     batch_results.append(result)
                     if descargar_pdfs and actas_dir is not None and result.mesa_data is not None:
