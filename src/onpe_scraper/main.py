@@ -111,6 +111,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Carpeta destino para PDFs de actas (default: acta/).",
     )
     parser.add_argument("--verbose", action="store_true")
+
+    # --- reconciliation args ---
+    parser.add_argument(
+        "--reconciliar",
+        action="store_true",
+        help=(
+            "Comparar C_onpe vs C_local tras el scrape normal y re-consultar mesas "
+            "que ONPE marca como C pero que localmente no lo son."
+        ),
+    )
+    parser.add_argument(
+        "--max-reconciliacion-mesas",
+        type=int,
+        default=200,
+        help="Cap de mesas a re-consultar por ciclo de reconciliacion (default: 200).",
+    )
+    parser.add_argument(
+        "--max-paginas-reconciliacion",
+        type=int,
+        default=50,
+        help=(
+            "Paginas maximas de /actas por ambito geografico en reconciliacion "
+            "(0 = sin limite; default: 50 = ~5000 mesas por ambito)."
+        ),
+    )
     return parser
 
 
@@ -178,7 +203,151 @@ def _flush_batch(
     upsert_locales_txt(batch_results, output_dir / "locales.txt")
 
 
-def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, work_dir: Path) -> None:
+def _run_reconciliacion(
+    client: OnpeClient,
+    id_eleccion: int,
+    output_dir: Path,
+    work_dir: Path,
+    max_reconciliacion_mesas: int = 200,
+    max_paginas_reconciliacion: int = 50,
+    descargar_pdfs: bool = False,
+    actas_dir: Path | None = None,
+    verbose: bool = False,
+) -> dict[str, int]:
+    """
+    Detecta y cierra el gap entre C_onpe (resumen API) y C_local (mesas_data.txt).
+
+    Flujo:
+    1. C_onpe  <- totales.actasContabilizadas
+    2. C_local <- contar filas en mesas_data.txt con estado Contabilizada
+    3. gap = C_onpe - C_local
+    4. Si gap > 0: paginar /actas para obtener codigos C en ONPE
+    5. gap_mesas = C_onpe_codigos - C_local_codigos
+    6. Re-consultar hasta max_reconciliacion_mesas de esas mesas y hacer upsert
+    7. Escribir work/reconciliacion_estado.txt
+    """
+    stats: dict[str, int] = {
+        "c_onpe": 0, "c_local": 0, "gap": 0,
+        "gap_mesas_detectadas": 0, "reconciliadas": 0, "errores": 0,
+    }
+
+    # 1. C_onpe desde summary (1 request rápido)
+    try:
+        totals = client.get_totals(id_eleccion, tipo_filtro="eleccion")
+        stats["c_onpe"] = int(totals.get("actasContabilizadas") or 0)
+    except Exception as exc:
+        print(f"  [reconciliacion] No se pudo obtener totales: {exc}")
+        return stats
+
+    # 2. C_local desde archivo
+    mesas_data_path = output_dir / "mesas_data.txt"
+    local_done: set[str] = set()
+    if mesas_data_path.exists():
+        with mesas_data_path.open("r", encoding="utf-8") as _f:
+            for _row in csv.DictReader(_f, delimiter="\t"):
+                estado = (_row.get("descripcion_estado_acta") or "").casefold()
+                if estado in ("contabilizada", "para envío al jee"):
+                    local_done.add(_row["codigo_mesa"])
+    stats["c_local"] = len(local_done)
+    stats["gap"] = max(0, stats["c_onpe"] - stats["c_local"])
+
+    print(
+        f"  [reconciliacion] C_onpe={stats['c_onpe']} "
+        f"C_local={stats['c_local']} gap={stats['gap']}"
+    )
+
+    if stats["gap"] == 0:
+        _write_reconciliacion_estado(work_dir, stats)
+        return stats
+
+    # 3. Paginar /actas para obtener codigos C de ONPE
+    try:
+        onpe_c_codes = client.get_contabilized_mesas(
+            id_eleccion,
+            include_observadas=True,
+            max_pages_per_ambito=max_paginas_reconciliacion,
+        )
+    except Exception as exc:
+        print(f"  [reconciliacion] Error paginando /actas: {exc}")
+        _write_reconciliacion_estado(work_dir, stats)
+        return stats
+
+    onpe_c_set = set(onpe_c_codes)
+    gap_mesas = [m for m in onpe_c_set if m not in local_done]
+    stats["gap_mesas_detectadas"] = len(gap_mesas)
+
+    print(f"  [reconciliacion] Mesas en /actas C/O: {len(onpe_c_set)} | gap_mesas: {len(gap_mesas)}")
+
+    if not gap_mesas:
+        _write_reconciliacion_estado(work_dir, stats)
+        return stats
+
+    # 4. Re-consultar hasta max_reconciliacion_mesas
+    to_query = gap_mesas[:max_reconciliacion_mesas]
+    actas_track_path = work_dir / "actas_descargadas.tsv"
+    actas_downloaded_keys: set[str] = set()
+    if descargar_pdfs and actas_dir is not None:
+        from .pdfs import load_acta_download_keys
+        actas_downloaded_keys = load_acta_download_keys(actas_track_path)
+
+    batch_results: list[MesaResult] = []
+    for codigo_mesa in to_query:
+        try:
+            result = client.get_mesa_acta(codigo_mesa, id_eleccion)
+            if result is not None:
+                batch_results.append(result)
+                if descargar_pdfs and actas_dir is not None and result.mesa_data is not None:
+                    estado = (result.mesa_data.descripcion_estado_acta or "").casefold()
+                    if estado in ("contabilizada", "para envío al jee"):
+                        try:
+                            from .pdfs import download_acta_archivos
+                            archivos = client.get_acta_archivos_by_id_acta(
+                                result.id_acta, result.codigo_mesa, result.mesa_data.id_eleccion
+                            )
+                            download_acta_archivos(
+                                client, archivos, actas_dir,
+                                index_file=actas_track_path,
+                                downloaded_keys=actas_downloaded_keys,
+                                skip_existing=True,
+                            )
+                        except Exception:
+                            pass
+                stats["reconciliadas"] += 1
+                if verbose:
+                    estado = result.mesa_data.descripcion_estado_acta if result.mesa_data else "?"
+                    print(f"    reconciliada {codigo_mesa}: {estado}")
+        except Exception as exc:
+            stats["errores"] += 1
+            if verbose:
+                print(f"    error reconciliacion {codigo_mesa}: {exc}")
+
+    if batch_results:
+        _flush_batch(batch_results, output_dir)
+
+    print(
+        f"  [reconciliacion] reconciliadas={stats['reconciliadas']} "
+        f"errores={stats['errores']} (de {len(to_query)} consultadas)"
+    )
+    _write_reconciliacion_estado(work_dir, stats)
+    return stats
+
+
+def _write_reconciliacion_estado(work_dir: Path, stats: dict[str, int]) -> None:
+    path = work_dir / "reconciliacion_estado.txt"
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        f"timestamp\t{ts}",
+        f"c_onpe\t{stats['c_onpe']}",
+        f"c_local\t{stats['c_local']}",
+        f"gap\t{stats['gap']}",
+        f"gap_mesas_detectadas\t{stats['gap_mesas_detectadas']}",
+        f"reconciliadas\t{stats['reconciliadas']}",
+        f"errores\t{stats['errores']}",
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+
     # 1. Detect election
     id_eleccion = args.id_eleccion or client.get_active_presidential_election_id()
     print(f"idEleccion: {id_eleccion}")
@@ -350,6 +519,20 @@ def run_mesas(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
         f"sin_datos={sin_datos} pendientes={len(pending_after)}"
     )
     print(f"Salidas en: {output_dir}")
+
+    # Reconciliation step: detect and close gap between C_onpe and C_local
+    if getattr(args, "reconciliar", False):
+        _run_reconciliacion(
+            client=client,
+            id_eleccion=id_eleccion,
+            output_dir=output_dir,
+            work_dir=work_dir,
+            max_reconciliacion_mesas=getattr(args, "max_reconciliacion_mesas", 200),
+            max_paginas_reconciliacion=getattr(args, "max_paginas_reconciliacion", 50),
+            descargar_pdfs=getattr(args, "descargar_pdfs", False),
+            actas_dir=Path(args.actas_dir) if getattr(args, "descargar_pdfs", False) else None,
+            verbose=getattr(args, "verbose", False),
+        )
 
 
 def _load_mesas_source(mesas_file: Path) -> list[tuple[str, int]]:

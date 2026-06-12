@@ -472,9 +472,47 @@ class OnpeClient:
                     time.sleep(0.3 * (2**attempt) + random.uniform(0.0, 0.3))
         raise RuntimeError(f"/actas pagina={pagina}: {self.max_retries} intentos fallidos") from last_exc
 
-    def get_contabilized_mesas(self, id_eleccion: int, include_observadas: bool = True) -> list[str]:
-        """Placeholder — /actas paging too slow; smart-order fallback is used instead."""
-        return []
+    def get_contabilized_mesas(
+        self,
+        id_eleccion: int,
+        include_observadas: bool = True,
+        max_pages_per_ambito: int = 0,
+    ) -> list[str]:
+        """
+        Paginate /actas (idAmbitoGeografico=1 Peru, 2 Exterior) to collect C/O mesa codes.
+
+        max_pages_per_ambito=0 means paginate all pages for each ambito.
+        Set a positive value to cap pages (e.g. 50 = first 5000 mesas per ambito).
+        """
+        _DONE = {"contabilizada"}
+        if include_observadas:
+            _DONE |= {"observada", "para envío al jee"}
+
+        codes: list[str] = []
+        for id_ambito in (1, 2):
+            pagina = 1
+            while True:
+                try:
+                    data = self._get_actas_page(
+                        id_ambito_geografico=id_ambito,
+                        pagina=pagina,
+                    )
+                except Exception:
+                    break
+                content = data.get("content") or []
+                for item in content:
+                    estado = str(item.get("descripcionEstadoActa") or "").casefold()
+                    if estado in _DONE:
+                        mesa = str(item.get("codigoMesa") or "").strip().zfill(6)
+                        if mesa and mesa != "000000":
+                            codes.append(mesa)
+                total_paginas = int(data.get("totalPaginas") or 0)
+                if pagina >= total_paginas:
+                    break
+                if max_pages_per_ambito > 0 and pagina >= max_pages_per_ambito:
+                    break
+                pagina += 1
+        return codes
 
     def get_mesa_acta(self, codigo_mesa: str, id_eleccion: int) -> MesaResult | None:
         """
