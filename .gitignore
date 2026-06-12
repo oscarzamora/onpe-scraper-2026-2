@@ -8,6 +8,7 @@ work/*
 !work/mesas_pendientes.txt
 !work/desconocidos.txt
 !work/actas_descargadas.tsv
+!work/reconciliacion_estado.txt
 # No trackear PDFs de actas ni subdirectorios de mesa
 acta/
 actas/

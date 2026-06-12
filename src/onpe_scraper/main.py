@@ -228,13 +228,17 @@ def _run_reconciliacion(
     """
     stats: dict[str, int] = {
         "c_onpe": 0, "c_local": 0, "gap": 0,
+        "pendientes_onpe": 0,
         "gap_mesas_detectadas": 0, "reconciliadas": 0, "errores": 0,
     }
 
     # 1. C_onpe desde summary (1 request rápido)
+    # 'contabilizadas' = count de actas C; 'enviadasJee' = "Para envío al JEE" (también done)
+    # 'actasContabilizadas' es un porcentaje (e.g. 98.27), NO el conteo.
     try:
         totals = client.get_totals(id_eleccion, tipo_filtro="eleccion")
-        stats["c_onpe"] = int(totals.get("actasContabilizadas") or 0)
+        stats["c_onpe"] = int(totals.get("contabilizadas") or 0) + int(totals.get("enviadasJee") or 0)
+        stats["pendientes_onpe"] = int(totals.get("pendientesJee") or 0)
     except Exception as exc:
         print(f"  [reconciliacion] No se pudo obtener totales: {exc}")
         return stats
@@ -253,7 +257,8 @@ def _run_reconciliacion(
 
     print(
         f"  [reconciliacion] C_onpe={stats['c_onpe']} "
-        f"C_local={stats['c_local']} gap={stats['gap']}"
+        f"C_local={stats['c_local']} gap={stats['gap']} "
+        f"pendientes_onpe={stats['pendientes_onpe']}"
     )
 
     if stats["gap"] == 0:
@@ -340,6 +345,7 @@ def _write_reconciliacion_estado(work_dir: Path, stats: dict[str, int]) -> None:
         f"c_onpe\t{stats['c_onpe']}",
         f"c_local\t{stats['c_local']}",
         f"gap\t{stats['gap']}",
+        f"pendientes_onpe\t{stats.get('pendientes_onpe', 0)}",
         f"gap_mesas_detectadas\t{stats['gap_mesas_detectadas']}",
         f"reconciliadas\t{stats['reconciliadas']}",
         f"errores\t{stats['errores']}",
