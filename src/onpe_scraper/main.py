@@ -124,8 +124,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-reconciliacion-mesas",
         type=int,
-        default=200,
-        help="Cap de mesas a re-consultar por ciclo de reconciliacion (default: 200).",
+        default=2000,
+        help="Cap de mesas a re-consultar por ciclo de reconciliacion (default: 2000).",
     )
     parser.add_argument(
         "--max-paginas-reconciliacion",
@@ -243,52 +243,64 @@ def _run_reconciliacion(
         print(f"  [reconciliacion] No se pudo obtener totales: {exc}")
         return stats
 
-    # 2. C_local desde archivo
+    # 2. C_local desde archivo — distinguir C puro vs E (Para envio al JEE)
     mesas_data_path = output_dir / "mesas_data.txt"
-    local_done: set[str] = set()
+    local_c_only: set[str] = set()
+    local_e_mesas: set[str] = set()
     if mesas_data_path.exists():
         with mesas_data_path.open("r", encoding="utf-8") as _f:
             for _row in csv.DictReader(_f, delimiter="\t"):
                 estado = (_row.get("descripcion_estado_acta") or "").casefold()
-                if estado in ("contabilizada", "para envío al jee"):
-                    local_done.add(_row["codigo_mesa"])
-    stats["c_local"] = len(local_done)
-    stats["gap"] = max(0, stats["c_onpe"] - stats["c_local"])
+                if estado == "contabilizada":
+                    local_c_only.add(_row["codigo_mesa"])
+                elif "env" in estado:
+                    local_e_mesas.add(_row["codigo_mesa"])
+    local_done = local_c_only | local_e_mesas
+    stats["c_local"] = len(local_c_only)
+    stats["e_local"] = len(local_e_mesas)
+    c_onpe_pure = stats["c_onpe"] - int(totals.get("enviadasJee") or 0)
+    stats["c_onpe_pure"] = c_onpe_pure
+    stats["e_c_drift"] = max(0, c_onpe_pure - len(local_c_only))
+    stats["gap"] = max(0, stats["c_onpe"] - len(local_done))
 
     print(
-        f"  [reconciliacion] C_onpe={stats['c_onpe']} "
-        f"C_local={stats['c_local']} gap={stats['gap']} "
+        f"  [reconciliacion] C_onpe={c_onpe_pure} E_onpe={totals.get('enviadasJee')} "
+        f"C_local={stats['c_local']} E_local={stats['e_local']} "
+        f"E->C_drift={stats['e_c_drift']} gap={stats['gap']} "
         f"pendientes_onpe={stats['pendientes_onpe']}"
     )
 
-    if stats["gap"] == 0:
+    # Re-query E mesas — ONPE puede haberlas movido a C
+    e_to_recheck = list(local_e_mesas)[:max_reconciliacion_mesas]
+    if e_to_recheck:
+        print(f"  [reconciliacion] Re-consultando {len(e_to_recheck)} mesas E (posible E->C)")
+
+    if stats["gap"] == 0 and not e_to_recheck:
         _write_reconciliacion_estado(work_dir, stats)
         return stats
 
-    # 3. Paginar /actas para obtener codigos C de ONPE
-    try:
-        onpe_c_codes = client.get_contabilized_mesas(
-            id_eleccion,
-            include_observadas=True,
-            max_pages_per_ambito=max_paginas_reconciliacion,
-        )
-    except Exception as exc:
-        print(f"  [reconciliacion] Error paginando /actas: {exc}")
+    # 3. Para gap>0: paginar /actas para encontrar mesas C que nos faltan
+    extra_gap_mesas: list[str] = []
+    if stats["gap"] > 0:
+        try:
+            onpe_c_codes = client.get_contabilized_mesas(
+                id_eleccion,
+                include_observadas=True,
+                max_pages_per_ambito=max_paginas_reconciliacion,
+            )
+            onpe_c_set = set(onpe_c_codes)
+            extra_gap_mesas = [m for m in onpe_c_set if m not in local_done]
+            stats["gap_mesas_detectadas"] = len(extra_gap_mesas)
+            print(f"  [reconciliacion] /actas C/O: {len(onpe_c_set)} | gap_mesas nuevas: {len(extra_gap_mesas)}")
+        except Exception as exc:
+            print(f"  [reconciliacion] Error paginando /actas: {exc}")
+
+    # 4. Re-consultar: E->C candidates primero, luego gap_mesas nuevas
+    to_query = (e_to_recheck + extra_gap_mesas)[:max_reconciliacion_mesas]
+    if not to_query:
         _write_reconciliacion_estado(work_dir, stats)
         return stats
-
-    onpe_c_set = set(onpe_c_codes)
-    gap_mesas = [m for m in onpe_c_set if m not in local_done]
-    stats["gap_mesas_detectadas"] = len(gap_mesas)
-
-    print(f"  [reconciliacion] Mesas en /actas C/O: {len(onpe_c_set)} | gap_mesas: {len(gap_mesas)}")
-
-    if not gap_mesas:
-        _write_reconciliacion_estado(work_dir, stats)
-        return stats
-
-    # 4. Re-consultar hasta max_reconciliacion_mesas
-    to_query = gap_mesas[:max_reconciliacion_mesas]
+    # 5. Re-consultar en paralelo (mismo pool size que main loop)
     actas_track_path = work_dir / "actas_descargadas.tsv"
     actas_downloaded_keys: set[str] = set()
     if descargar_pdfs and actas_dir is not None:
@@ -296,35 +308,38 @@ def _run_reconciliacion(
         actas_downloaded_keys = load_acta_download_keys(actas_track_path)
 
     batch_results: list[MesaResult] = []
-    for codigo_mesa in to_query:
-        try:
-            result = client.get_mesa_acta(codigo_mesa, id_eleccion)
-            if result is not None:
-                batch_results.append(result)
-                if descargar_pdfs and actas_dir is not None and result.mesa_data is not None:
-                    estado = (result.mesa_data.descripcion_estado_acta or "").casefold()
-                    if estado in ("contabilizada", "para envío al jee"):
-                        try:
-                            from .pdfs import download_acta_archivos
-                            archivos = client.get_acta_archivos_by_id_acta(
-                                result.id_acta, result.codigo_mesa, result.mesa_data.id_eleccion
-                            )
-                            download_acta_archivos(
-                                client, archivos, actas_dir,
-                                index_file=actas_track_path,
-                                downloaded_keys=actas_downloaded_keys,
-                                skip_existing=True,
-                            )
-                        except Exception:
-                            pass
-                stats["reconciliadas"] += 1
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(client.get_mesa_acta, m, id_eleccion): m for m in to_query}
+        for future in as_completed(futures):
+            codigo_mesa = futures[future]
+            try:
+                result = future.result()
+                if result is not None:
+                    batch_results.append(result)
+                    if descargar_pdfs and actas_dir is not None and result.mesa_data is not None:
+                        estado = (result.mesa_data.descripcion_estado_acta or "").casefold()
+                        if estado in ("contabilizada", "para envío al jee"):
+                            try:
+                                from .pdfs import download_acta_archivos
+                                archivos = client.get_acta_archivos_by_id_acta(
+                                    result.id_acta, result.codigo_mesa, result.mesa_data.id_eleccion
+                                )
+                                download_acta_archivos(
+                                    client, archivos, actas_dir,
+                                    index_file=actas_track_path,
+                                    downloaded_keys=actas_downloaded_keys,
+                                    skip_existing=True,
+                                )
+                            except Exception:
+                                pass
+                    stats["reconciliadas"] += 1
+                    if verbose:
+                        estado = result.mesa_data.descripcion_estado_acta if result.mesa_data else "?"
+                        print(f"    reconciliada {codigo_mesa}: {estado}")
+            except Exception as exc:
+                stats["errores"] += 1
                 if verbose:
-                    estado = result.mesa_data.descripcion_estado_acta if result.mesa_data else "?"
-                    print(f"    reconciliada {codigo_mesa}: {estado}")
-        except Exception as exc:
-            stats["errores"] += 1
-            if verbose:
-                print(f"    error reconciliacion {codigo_mesa}: {exc}")
+                    print(f"    error reconciliacion {codigo_mesa}: {exc}")
 
     if batch_results:
         _flush_batch(batch_results, output_dir)
@@ -342,8 +357,11 @@ def _write_reconciliacion_estado(work_dir: Path, stats: dict[str, int]) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines = [
         f"timestamp\t{ts}",
-        f"c_onpe\t{stats['c_onpe']}",
+        f"c_onpe\t{stats.get('c_onpe_pure', stats['c_onpe'])}",
+        f"e_onpe\t{stats['c_onpe'] - stats.get('c_onpe_pure', stats['c_onpe'])}",
         f"c_local\t{stats['c_local']}",
+        f"e_local\t{stats.get('e_local', 0)}",
+        f"e_c_drift\t{stats.get('e_c_drift', 0)}",
         f"gap\t{stats['gap']}",
         f"pendientes_onpe\t{stats.get('pendientes_onpe', 0)}",
         f"gap_mesas_detectadas\t{stats['gap_mesas_detectadas']}",
