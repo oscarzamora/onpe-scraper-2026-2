@@ -10,9 +10,9 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	090000	HUÁNUCO	2321	99.146	onpe_api
 10	100000	ICA	2428	99.386	onpe_api
 10	110000	JUNÍN	3669	99.404	onpe_api
-10	120000	LA LIBERTAD	5273	99.453	onpe_api
+10	120000	LA LIBERTAD	5274	99.472	onpe_api
 10	130000	LAMBAYEQUE	3577	99.638	onpe_api
-10	140000	LIMA	28393	97.08	onpe_api
+10	140000	LIMA	28397	97.094	onpe_api
 10	150000	LORETO	2664	98.776	onpe_api
 10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
@@ -22,7 +22,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	210000	SAN MARTÍN	2520	99.448	onpe_api
 10	220000	TACNA	1028	98.751	onpe_api
 10	230000	TUMBES	630	99.684	onpe_api
-10	240000	CALLAO	2852	98.413	onpe_api
+10	240000	CALLAO	2853	98.447	onpe_api
 10	250000	UCAYALI	1528	97.698	onpe_api
 10	910000		6	100.0	onpe_api
 10	920000		1504	95.796	onpe_api
