@@ -270,10 +270,13 @@ def _run_reconciliacion(
         f"pendientes_onpe={stats['pendientes_onpe']}"
     )
 
-    # Re-query E mesas — ONPE puede haberlas movido a C
-    e_to_recheck = list(local_e_mesas)[:max_reconciliacion_mesas]
+    # Re-query E mesas solo si hay drift detectado o es la primera vez (cada 3 ciclos como mínimo)
+    # Si drift=0 y gap=0 no re-consultamos E para evitar llamadas innecesarias
+    e_to_recheck: list[str] = []
+    if stats["e_c_drift"] > 0 or stats["gap"] > 0:
+        e_to_recheck = list(local_e_mesas)[:max_reconciliacion_mesas]
     if e_to_recheck:
-        print(f"  [reconciliacion] Re-consultando {len(e_to_recheck)} mesas E (posible E->C)")
+        print(f"  [reconciliacion] Re-consultando {len(e_to_recheck)} mesas E (drift={stats['e_c_drift']})")
 
     if stats["gap"] == 0 and not e_to_recheck:
         _write_reconciliacion_estado(work_dir, stats)
