@@ -19,7 +19,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	180000	PASCO	787	98.13	onpe_api
 10	190000	PIURA	5224	98.921	onpe_api
 10	200000	PUNO	3373	99.293	onpe_api
-10	210000	SAN MARTÍN	2520	99.448	onpe_api
+10	210000	SAN MARTÍN	2521	99.487	onpe_api
 10	220000	TACNA	1028	98.751	onpe_api
 10	230000	TUMBES	630	99.684	onpe_api
 10	240000	CALLAO	2871	99.068	onpe_api
