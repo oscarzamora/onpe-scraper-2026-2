@@ -402,7 +402,7 @@ Archivo opcional: puede no generarse en una corrida si el endpoint retorna vací
 | `pct_ausentes` | float | % de ausentes |
 | `fuente` | str | `onpe_api` |
 
-### Modelo relacional
+### Modelo relacional (`output/`)
 
 ```mermaid
 erDiagram
@@ -437,22 +437,6 @@ erDiagram
         str nombre
     }
 
-    candidatos_historial {
-        str   timestampActualizacion
-        str   proceso
-        int   idEleccion
-        str   tipoFiltro
-        str   filtros
-        float actasContabilizadas
-        int   totalActas
-        float participacionCiudadana
-        str   nombreCandidato
-        str   nombreAgrupacionPolitica
-        int   totalVotosValidos
-        float porcentajeVotosValidos
-        float porcentajeVotosEmitidos
-    }
-
     ubicaciones {
         str ubigeo             PK
         str ambito
@@ -476,6 +460,108 @@ erDiagram
     agrupaciones ||--o{ votos : "partido_id"
     mesas_data }o--|| locales : "codigo_local_votacion"
     locales }o--|| ubicaciones : "ubigeo"
+```
+
+`candidatos_historial.txt` se considera dataset temporal opcional (modo `resumen`),
+no parte del core operacional del modo `mesas` + `resumen-geo`.
+
+### Modelo temporal opcional (`output/candidatos_historial.txt`)
+
+```mermaid
+erDiagram
+    candidatos_historial {
+        str   timestampActualizacion
+        str   proceso
+        int   idEleccion
+        str   tipoFiltro
+        str   filtros
+        float actasContabilizadas
+        int   totalActas
+        float participacionCiudadana
+        str   nombreCandidato
+        str   nombreAgrupacionPolitica
+        int   totalVotosValidos
+        float porcentajeVotosValidos
+        float porcentajeVotosEmitidos
+    }
+
+    candidatos_historial }o..o{ agrupaciones : "match por nombre (analitico)"
+```
+
+### Modelo relacional (`resumen/`)
+
+```mermaid
+erDiagram
+    resumen_nacional {
+        int   id_eleccion
+        int   id_ambito_geografico
+        int   partido_id
+        str   nombre_candidato
+        str   nombre_agrupacion_politica
+        int   votos_validos
+        float pct_votos_validos
+        float pct_votos_emitidos
+        float actas_contabilizadas_pct
+        int   contabilizadas
+        int   total_actas
+        float participacion_ciudadana
+        str   fecha_actualizacion
+        str   fuente
+    }
+
+    resumen_departamentos {
+        int   id_eleccion
+        str   ubigeo
+        int   partido_id
+        str   nombre_candidato
+        str   nombre_agrupacion_politica
+        int   votos_validos
+        float pct_votos_validos
+        float pct_votos_emitidos
+        int   total_votos_validos_geo
+        int   total_votos_emitidos_geo
+        str   fuente
+    }
+
+    resumen_provincias {
+        int   id_eleccion
+        str   ubigeo
+        int   partido_id
+        str   nombre_candidato
+        str   nombre_agrupacion_politica
+        int   votos_validos
+        float pct_votos_validos
+        float pct_votos_emitidos
+        int   total_votos_validos_geo
+        int   total_votos_emitidos_geo
+        str   fuente
+    }
+
+    resumen_cobertura_departamentos {
+        int   id_eleccion
+        str   ubigeo
+        str   nombre_departamento
+        int   actas_contabilizadas
+        float pct_actas_contabilizadas
+        str   fuente
+    }
+
+    resumen_participacion_departamentos {
+        int   id_eleccion
+        str   ubigeo
+        str   nombre_departamento
+        float pct_asistentes
+        float pct_ausentes
+        str   fuente
+    }
+
+    resumen_nacional }o..o{ agrupaciones : "partido_id (cuando viene poblado)"
+    resumen_departamentos }o..o{ agrupaciones : "partido_id"
+    resumen_provincias }o..o{ agrupaciones : "partido_id"
+    resumen_departamentos }o..o{ ubicaciones : "ubigeo DD0000"
+    resumen_provincias }o..o{ ubicaciones : "ubigeo DDPP00"
+    resumen_cobertura_departamentos }o..o{ ubicaciones : "ubigeo DD0000"
+    resumen_participacion_departamentos }o..o{ ubicaciones : "ubigeo DD0000 (opcional)"
 ```
 
 ### Modelo analítico — tabla plana desnormalizada
