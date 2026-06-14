@@ -1,5 +1,10 @@
 # ONPE Scraper 2026 — Segunda Vuelta Presidencial
 
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Data](https://img.shields.io/badge/Datos-TSV%20UTF--8-0B7A75)
+![Estado](https://img.shields.io/badge/Estado-Activo-1F8B4C)
+![Licencia](https://img.shields.io/badge/Licencia-MIT-111111)
+
 > **Transparencia electoral independiente para las Elecciones Generales del Perú 2026.**
 >
 > Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadosegundavuelta.onpe.gob.pe](https://resultadosegundavuelta.onpe.gob.pe/main/resumen) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
@@ -138,7 +143,7 @@ python -m src.onpe_scraper.main --modo mesas --redescubrir \
   --verbose
 
 # Descarga de PDFs: OFF por defecto. Activar con --descargar-pdfs (opcional)
-python -m src.onpe_scraper.main --modo mesas --descargar-pdfs --actas-dir actas
+python -m src.onpe_scraper.main --modo mesas --descargar-pdfs --actas-dir acta
 ```
 
 > **Nota:** La descarga de PDFs de actas es **opcional y está desactivada por defecto**.
@@ -167,12 +172,12 @@ python -m src.onpe_scraper.main --modo resumen-geo --id-eleccion 10 --resumen-fu
 python -m src.onpe_scraper.main --modo resumen-geo --id-eleccion 10
 ```
 
-Produce 5 archivos en `resumen/`:
+Produce 4 archivos base en `resumen/` (+1 opcional según disponibilidad del endpoint):
 - `resumen_nacional.txt` — totales oficiales ONPE (candidatos, % votos, cobertura nacional)
 - `resumen_departamentos.txt` — votos por candidato × departamento (bottom-up de mesas locales)
 - `resumen_provincias.txt` — votos por candidato × provincia (bottom-up de mesas locales)
 - `resumen_cobertura_departamentos.txt` — % actas contabilizadas por departamento (ONPE API)
-- `resumen_participacion_departamentos.txt` — % participación por departamento (ONPE API)
+- `resumen_participacion_departamentos.txt` — % participación por departamento (ONPE API, opcional: se escribe si el endpoint devuelve data)
 
 
 
@@ -233,7 +238,7 @@ resumen/                         ← capa de resumen oficial (tab-delimited UTF-
   resumen_departamentos.txt      ← votos por candidato × departamento (bottom-up)
   resumen_provincias.txt         ← votos por candidato × provincia (bottom-up)
   resumen_cobertura_departamentos.txt ← % actas contabilizadas por departamento (ONPE API)
-  resumen_participacion_departamentos.txt ← % participación ciudadana por departamento
+    resumen_participacion_departamentos.txt ← % participación ciudadana por departamento (opcional)
 
 work/                            ← estado interno del scraper (no commitear)
   mesas_pendientes.txt           ← mesas aún no contabilizadas (resume file)
@@ -342,7 +347,7 @@ Totales oficiales ONPE directamente desde la API — siempre la fuente más actu
 |---|---|---|
 | `id_eleccion` | int | ID de elección (10 = segunda vuelta 2026) |
 | `id_ambito_geografico` | int | 1 = Perú |
-| `partido_id` | int | FK → agrupaciones (vacío para nulos/blancos) |
+| `partido_id` | int? | FK → agrupaciones cuando viene poblado; puede venir vacío en ONPE para filas agregadas |
 | `nombre_candidato` | str | Nombre del candidato (o "VOTOS NULOS" / "VOTOS EN BLANCO") |
 | `nombre_agrupacion_politica` | str | Nombre del partido |
 | `votos_validos` | int | Votos válidos totales |
@@ -386,6 +391,7 @@ Progreso de escrutinio por departamento. Fuente: ONPE API `/resumen-general/mapa
 
 #### `resumen/resumen_participacion_departamentos.txt`
 Participación ciudadana por departamento. Fuente: ONPE API `/participacion-ciudadana/ubigeos-total`.
+Archivo opcional: puede no generarse en una corrida si el endpoint retorna vacío o no disponible.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -497,6 +503,7 @@ hechos (tabla plana para BI)
 │
 └── LOCAL ─────────────────────────────────────────────────────
     ├── nombre_local_votacion
+    ├── codigo_local_votacion
     ├── lat, lon                      ← coordenadas (tras enrich_geo)
     └── ambito (peru / exterior)
 ```
@@ -642,7 +649,8 @@ python -m src.onpe_scraper.enrich_geo --force
 - **Upsert incremental:** los TXT usan el patrón load → merge → rewrite con claves compuestas `(id_eleccion, codigo_mesa)`. Cada corrida actualiza sin duplicar.
 - **Resume automático:** `work/mesas_pendientes.txt` guarda las mesas no contabilizadas. La próxima corrida sin `--redescubrir` solo re-consulta esas.
 - **Métricas por corrida:** para auditoría, revisar en logs `procesadas`, `pendientes`, `errores` y `nuevas contabilizadas`. Un valor de `nuevas contabilizadas=0` puede ser normal si ONPE no publicó nuevas actas en ese intervalo.
-- **Retry con backoff:** `get_mesa_acta` reintenta 3 veces con espera exponencial (0.5 s, 1 s, 2 s).
+- **Retry con backoff:** `get_mesa_acta` reintenta hasta 5 veces con espera exponencial + jitter.
+- **Sanitización de entrada:** el parser normaliza textos (trim/espacios), códigos (`mesa`, `ubigeo`, `local`) y numéricos antes del upsert para mantener archivos consistentes.
 - Si ONPE cambia la forma del payload, solo hay que editar `client.py`.
 
 ---

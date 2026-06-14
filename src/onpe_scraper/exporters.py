@@ -15,6 +15,17 @@ def ensure_output_dir(path: str | Path) -> Path:
     return output_dir
 
 
+def _clean_cell(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _clean_code(value: Any, width: int = 0) -> str:
+    digits = "".join(ch for ch in str(value or "").strip() if ch.isdigit())
+    if width > 0:
+        return digits.zfill(width)
+    return digits
+
+
 def write_snapshot_json(snapshot: dict[str, Any], output_file: str | Path) -> Path:
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,8 +140,9 @@ def _load_txt(path: Path, key_fields: list[str]) -> OrderedDict[tuple, dict[str,
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
-            key = tuple(row.get(k, "") for k in key_fields)
-            store[key] = dict(row)
+            cleaned_row = {k: _clean_cell(v) for k, v in row.items() if k is not None}
+            key = tuple(cleaned_row.get(k, "") for k in key_fields)
+            store[key] = cleaned_row
     return store
 
 
@@ -224,10 +236,15 @@ def write_pending_mesas_txt(pending: list[str], output_file: str | Path) -> Path
     """Overwrite the pending mesas list with the current set of non-counted mesa codes."""
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         for code in pending:
-            writer.writerow([code])
+            normalized = _clean_code(code, 6)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            writer.writerow([normalized])
     return output_path
 
 

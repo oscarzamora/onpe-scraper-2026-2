@@ -142,6 +142,45 @@ class OnpeClient:
             f"Mesa {codigo_mesa}: {self.max_retries} intentos fallidos"
         ) from last_exc
 
+    @staticmethod
+    def _sanitize_text(value: Any) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    @staticmethod
+    def _sanitize_code(value: Any, width: int = 0) -> str:
+        raw = "".join(ch for ch in str(value or "").strip() if ch.isdigit())
+        if width > 0:
+            return raw.zfill(width)
+        return raw
+
+    @staticmethod
+    def _to_int(value: Any, default: int = 0) -> int:
+        if value is None:
+            return default
+        try:
+            if isinstance(value, str):
+                cleaned = value.strip().replace(",", "")
+                if not cleaned:
+                    return default
+                return int(float(cleaned))
+            return int(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 0.0) -> float:
+        if value is None:
+            return default
+        try:
+            if isinstance(value, str):
+                cleaned = value.strip().replace("%", "").replace(",", ".")
+                if not cleaned:
+                    return default
+                return float(cleaned)
+            return float(value)
+        except Exception:
+            return default
+
     # ------------------------------------------------------------------ #
     # Summary / aggregate endpoints (use plain requests)                  #
     # ------------------------------------------------------------------ #
@@ -321,48 +360,48 @@ class OnpeClient:
 
     @staticmethod
     def _parse_acta(acta: dict[str, Any], codigo_mesa: str) -> MesaResult:
-        id_acta = int(acta.get("id") or 0)
-        id_eleccion = int(acta.get("idEleccion") or 0)
+        id_acta = OnpeClient._to_int(acta.get("id"), 0)
+        id_eleccion = OnpeClient._to_int(acta.get("idEleccion"), 0)
         mesa_data = MesaData(
-            codigo_mesa=codigo_mesa,
+            codigo_mesa=OnpeClient._sanitize_code(codigo_mesa, 6),
             id_eleccion=id_eleccion,
-            id_ubigeo=str(int(acta.get("idUbigeo") or 0)).zfill(6),
-            nombre_local_votacion=str(acta.get("nombreLocalVotacion") or ""),
-            codigo_local_votacion=str(acta.get("codigoLocalVotacion") or ""),
-            id_ambito_geografico=int(acta.get("idAmbitoGeografico") or 0),
-            electores_habiles=int(acta.get("totalElectoresHabiles") or 0),
-            votos_emitidos=int(acta.get("totalVotosEmitidos") or 0),
-            votos_validos=int(acta.get("totalVotosValidos") or 0),
-            total_asistentes=int(acta.get("totalAsistentes") or 0),
-            participacion_ciudadana=float(acta.get("porcentajeParticipacionCiudadana") or 0.0),
-            codigo_estado_acta=str(acta.get("codigoEstadoActa") or ""),
-            descripcion_estado_acta=str(acta.get("descripcionEstadoActa") or ""),
+            id_ubigeo=OnpeClient._sanitize_code(acta.get("idUbigeo"), 6),
+            nombre_local_votacion=OnpeClient._sanitize_text(acta.get("nombreLocalVotacion")),
+            codigo_local_votacion=OnpeClient._sanitize_code(acta.get("codigoLocalVotacion"), 4),
+            id_ambito_geografico=OnpeClient._to_int(acta.get("idAmbitoGeografico"), 0),
+            electores_habiles=OnpeClient._to_int(acta.get("totalElectoresHabiles"), 0),
+            votos_emitidos=OnpeClient._to_int(acta.get("totalVotosEmitidos"), 0),
+            votos_validos=OnpeClient._to_int(acta.get("totalVotosValidos"), 0),
+            total_asistentes=OnpeClient._to_int(acta.get("totalAsistentes"), 0),
+            participacion_ciudadana=OnpeClient._to_float(acta.get("porcentajeParticipacionCiudadana"), 0.0),
+            codigo_estado_acta=OnpeClient._sanitize_text(acta.get("codigoEstadoActa")),
+            descripcion_estado_acta=OnpeClient._sanitize_text(acta.get("descripcionEstadoActa")),
         )
         agrupaciones: list[AgrupacionData] = []
         votos: list[VotoData] = []
         for item in acta.get("detalle") or []:
-            partido_id = int(item.get("adAgrupacionPolitica") or 0)
+            partido_id = OnpeClient._to_int(item.get("adAgrupacionPolitica"), 0)
             if not partido_id:
                 continue
             agrupaciones.append(
                 AgrupacionData(
                     partido_id=partido_id,
-                    codigo_op=str(item.get("adCodigo") or ""),
-                    nombre=str(item.get("adDescripcion") or ""),
+                    codigo_op=OnpeClient._sanitize_text(item.get("adCodigo")),
+                    nombre=OnpeClient._sanitize_text(item.get("adDescripcion")),
                 )
             )
             votos.append(
                 VotoData(
-                    codigo_mesa=codigo_mesa,
+                    codigo_mesa=mesa_data.codigo_mesa,
                     id_eleccion=id_eleccion,
                     partido_id=partido_id,
-                    votos=int(item.get("adVotos") or 0),
-                    pct_votos_validos=float(item.get("adPorcentajeVotosValidos") or 0.0),
-                    pct_votos_emitidos=float(item.get("adPorcentajeVotosEmitidos") or 0.0),
+                    votos=OnpeClient._to_int(item.get("adVotos"), 0),
+                    pct_votos_validos=OnpeClient._to_float(item.get("adPorcentajeVotosValidos"), 0.0),
+                    pct_votos_emitidos=OnpeClient._to_float(item.get("adPorcentajeVotosEmitidos"), 0.0),
                 )
             )
         return MesaResult(
-            codigo_mesa=codigo_mesa,
+            codigo_mesa=mesa_data.codigo_mesa,
             id_acta=id_acta,
             mesa_data=mesa_data,
             agrupaciones=agrupaciones,
@@ -562,20 +601,20 @@ class OnpeClient:
         for orden, item in enumerate(archivos, start=1):
             if not isinstance(item, dict):
                 continue
-            archivo_id = str(item.get("id") or "").strip()
+            archivo_id = self._sanitize_text(item.get("id"))
             if not archivo_id:
                 continue
             results.append(
                 ActaArchivoData(
-                    codigo_mesa=codigo_mesa.zfill(6),
+                    codigo_mesa=self._sanitize_code(codigo_mesa, 6),
                     id_eleccion=id_eleccion,
                     id_acta=id_acta,
                     archivo_id=archivo_id,
                     orden=orden,
-                    tipo=int(item.get("tipo") or 0),
-                    nombre=str(item.get("nombre") or ""),
-                    descripcion=str(item.get("descripcion") or ""),
-                    daud_fecha_creacion=int(item.get("daudFechaCreacion") or 0),
+                    tipo=self._to_int(item.get("tipo"), 0),
+                    nombre=self._sanitize_text(item.get("nombre")),
+                    descripcion=self._sanitize_text(item.get("descripcion")),
+                    daud_fecha_creacion=self._to_int(item.get("daudFechaCreacion"), 0),
                 )
             )
         return results
