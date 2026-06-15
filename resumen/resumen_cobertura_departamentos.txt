@@ -9,8 +9,8 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	080000	HUANCAVELICA	1262	99.136	onpe_api
 10	090000	HUÁNUCO	2321	99.146	onpe_api
 10	100000	ICA	2428	99.386	onpe_api
-10	110000	JUNÍN	3683	99.783	onpe_api
-10	120000	LA LIBERTAD	5287	99.717	onpe_api
+10	110000	JUNÍN	3686	99.865	onpe_api
+10	120000	LA LIBERTAD	5291	99.793	onpe_api
 10	130000	LAMBAYEQUE	3580	99.721	onpe_api
 10	140000	LIMA	28491	97.415	onpe_api
 10	150000	LORETO	2671	99.036	onpe_api
