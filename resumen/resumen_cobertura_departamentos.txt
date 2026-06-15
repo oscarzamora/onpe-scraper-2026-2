@@ -4,7 +4,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	030000	APURÍMAC	1309	99.393	onpe_api
 10	040000	AREQUIPA	4197	99.573	onpe_api
 10	050000	AYACUCHO	1886	99.263	onpe_api
-10	060000	CAJAMARCA	4235	99.882	onpe_api
+10	060000	CAJAMARCA	4239	99.976	onpe_api
 10	070000	CUSCO	3928	98.619	onpe_api
 10	080000	HUANCAVELICA	1262	99.136	onpe_api
 10	090000	HUÁNUCO	2321	99.146	onpe_api
@@ -12,7 +12,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	110000	JUNÍN	3688	99.919	onpe_api
 10	120000	LA LIBERTAD	5291	99.793	onpe_api
 10	130000	LAMBAYEQUE	3580	99.721	onpe_api
-10	140000	LIMA	28491	97.415	onpe_api
+10	140000	LIMA	28493	97.422	onpe_api
 10	150000	LORETO	2671	99.036	onpe_api
 10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
