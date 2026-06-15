@@ -17,7 +17,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	160000	MADRE DE DIOS	502	99.014	onpe_api
 10	170000	MOQUEGUA	576	99.654	onpe_api
 10	180000	PASCO	787	98.13	onpe_api
-10	190000	PIURA	5231	99.053	onpe_api
+10	190000	PIURA	5236	99.148	onpe_api
 10	200000	PUNO	3373	99.293	onpe_api
 10	210000	SAN MARTÍN	2528	99.763	onpe_api
 10	220000	TACNA	1031	99.039	onpe_api
