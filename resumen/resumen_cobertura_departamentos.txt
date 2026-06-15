@@ -1,6 +1,6 @@
 id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabilizadas	fuente
 10	010000	AMAZONAS	1278	100.0	onpe_api
-10	020000	ÁNCASH	3443	99.165	onpe_api
+10	020000	ÁNCASH	3447	99.28	onpe_api
 10	030000	APURÍMAC	1309	99.393	onpe_api
 10	040000	AREQUIPA	4197	99.573	onpe_api
 10	050000	AYACUCHO	1889	99.421	onpe_api
@@ -25,7 +25,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	240000	CALLAO	2871	99.068	onpe_api
 10	250000	UCAYALI	1528	97.698	onpe_api
 10	910000		6	100.0	onpe_api
-10	920000		1519	96.752	onpe_api
+10	920000		1520	96.815	onpe_api
 10	930000		105	98.131	onpe_api
-10	940000		796	94.875	onpe_api
+10	940000		797	94.994	onpe_api
 10	950000		20	95.238	onpe_api
