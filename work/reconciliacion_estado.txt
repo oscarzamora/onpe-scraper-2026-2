@@ -1,9 +1,9 @@
-timestamp	2026-06-16T02:08:37Z
-c_onpe	91829
-e_onpe	937
-c_local	91824
-e_local	942
-e_c_drift	5
+timestamp	2026-06-16T02:28:54Z
+c_onpe	91830
+e_onpe	936
+c_local	91828
+e_local	938
+e_c_drift	2
 gap	0
 pendientes_onpe	0
 gap_mesas_detectadas	0
