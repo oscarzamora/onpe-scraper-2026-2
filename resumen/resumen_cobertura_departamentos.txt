@@ -1,6 +1,6 @@
 id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabilizadas	fuente
 10	010000	AMAZONAS	1278	100.0	onpe_api
-10	020000	ÁNCASH	3447	99.28	onpe_api
+10	020000	ÁNCASH	3448	99.309	onpe_api
 10	030000	APURÍMAC	1309	99.393	onpe_api
 10	040000	AREQUIPA	4199	99.62	onpe_api
 10	050000	AYACUCHO	1891	99.526	onpe_api
@@ -12,8 +12,8 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	110000	JUNÍN	3691	100.0	onpe_api
 10	120000	LA LIBERTAD	5293	99.83	onpe_api
 10	130000	LAMBAYEQUE	3580	99.721	onpe_api
-10	140000	LIMA	28662	98.0	onpe_api
-10	150000	LORETO	2694	99.889	onpe_api
+10	140000	LIMA	28664	98.007	onpe_api
+10	150000	LORETO	2696	99.963	onpe_api
 10	160000	MADRE DE DIOS	503	99.211	onpe_api
 10	170000	MOQUEGUA	578	100.0	onpe_api
 10	180000	PASCO	794	99.002	onpe_api
