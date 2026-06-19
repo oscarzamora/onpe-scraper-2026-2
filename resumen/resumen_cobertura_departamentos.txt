@@ -16,7 +16,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	150000	LORETO	2697	100.0	onpe_api
 10	160000	MADRE DE DIOS	506	99.803	onpe_api
 10	170000	MOQUEGUA	578	100.0	onpe_api
-10	180000	PASCO	798	99.501	onpe_api
+10	180000	PASCO	800	99.751	onpe_api
 10	190000	PIURA	5251	99.432	onpe_api
 10	200000	PUNO	3391	99.823	onpe_api
 10	210000	SAN MARTÍN	2528	99.763	onpe_api
