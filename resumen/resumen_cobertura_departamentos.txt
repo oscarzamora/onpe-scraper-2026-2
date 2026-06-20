@@ -23,7 +23,7 @@ id_eleccion	ubigeo	nombre_departamento	actas_contabilizadas	pct_actas_contabiliz
 10	220000	TACNA	1035	99.424	onpe_api
 10	230000	TUMBES	631	99.842	onpe_api
 10	240000	CALLAO	2896	99.931	onpe_api
-10	250000	UCAYALI	1547	98.913	onpe_api
+10	250000	UCAYALI	1554	99.361	onpe_api
 10	910000		6	100.0	onpe_api
 10	920000		1565	99.682	onpe_api
 10	930000		107	100.0	onpe_api
