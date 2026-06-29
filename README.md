@@ -2,14 +2,73 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Data](https://img.shields.io/badge/Datos-TSV%20UTF--8-0B7A75)
-![Estado](https://img.shields.io/badge/Estado-Activo-1F8B4C)
+![Estado](https://img.shields.io/badge/Estado-Cerrado%20100%25-6c757d)
 ![Licencia](https://img.shields.io/badge/Licencia-MIT-111111)
+
+> ## 🏁 ESCRUTINIO COMPLETADO — PROYECTO CERRADO
+>
+> **El escrutinio alcanzó el 100 % de mesas contabilizadas.**
+> Este repositorio ya no recibirá más actualizaciones de datos.
+>
+> **Cierre:** `2026-06-29 22:11 (UTC+2)` · `2026-06-29T20:11Z`
+>
+> Los datos en `output/` y `resumen/` son el registro definitivo final de la Segunda Vuelta Presidencial del Perú 2026.
+
+---
 
 > **Transparencia electoral independiente para las Elecciones Generales del Perú 2026.**
 >
-> Este proyecto extrae los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadosegundavuelta.onpe.gob.pe](https://resultadosegundavuelta.onpe.gob.pe/main/resumen) — y los publica como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
+> Este proyecto extrajo los resultados de la segunda vuelta presidencial directamente desde la API interna de ONPE — la misma fuente que alimenta el sitio oficial [resultadosegundavuelta.onpe.gob.pe](https://resultadosegundavuelta.onpe.gob.pe/main/resumen) — y los publicó como datos abiertos y verificables en este repositorio, mesa por mesa, en tiempo real.
 
-Las actualizaciones se realizan mediante corridas manuales del scraper. Puedes ejecutar el flujo localmente o desde Copilot CLI y luego publicar los cambios con `git push`.
+---
+
+## Inicio rápido
+
+### 1 — Obtener los datos (sin instalar nada)
+
+Los datos finales ya están en este repo. Descarga directa:
+
+```bash
+# Clonar todo
+git clone https://github.com/oscarzamora/onpe-scraper-2026-2.git
+
+# O solo los archivos que necesitas (sin clonar)
+curl -O https://raw.githubusercontent.com/oscarzamora/onpe-scraper-2026-2/main/output/mesas_data.txt
+curl -O https://raw.githubusercontent.com/oscarzamora/onpe-scraper-2026-2/main/output/votos.txt
+curl -O https://raw.githubusercontent.com/oscarzamora/onpe-scraper-2026-2/main/resumen/resumen_nacional.txt
+```
+
+### 2 — Instalar dependencias (solo si vas a ejecutar el scraper)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+**Requisito:** Python 3.11+. `curl_cffi` es obligatorio — ONPE exige fingerprinting de Chrome en todos sus endpoints.
+
+### 3 — Ejecutar (referencia de comandos principales)
+
+```powershell
+# Totales nacionales (modo resumen)
+python -m src.onpe_scraper.main
+
+# Scraping mesa por mesa — primera corrida
+python -m src.onpe_scraper.main --modo mesas --redescubrir
+
+# Scraping mesa por mesa — reanudar desde donde quedó
+python -m src.onpe_scraper.main --modo mesas
+
+# Resumen geográfico por departamento/provincia
+python -m src.onpe_scraper.main --modo resumen-geo --id-eleccion 10
+
+# Loop automático (ciclo completo: mesas + resumen-geo + git push)
+.\scripts\loop.ps1
+```
+
+> **Nota:** El scraper ya no tiene datos nuevos que obtener — el 100 % fue alcanzado el 2026-06-29.
+> Estos comandos son útiles si quieres re-ejecutar el scraper para validar los datos o como base para futuros proyectos.
 
 ---
 
@@ -55,9 +114,9 @@ ubigeo_nivel_03     → distrito     (ej: 150101 = Lima Cercado)
 
 ---
 
-## Datos en vivo
+## Datos — registro final
 
-Los archivos `output/*.txt` de este repositorio se actualizan automáticamente durante el escrutinio:
+Los archivos `output/` y `resumen/` de este repositorio contienen el **escrutinio completo y definitivo**:
 
 ```
 output/
@@ -75,7 +134,7 @@ Cada commit de datos tiene el mensaje `data: YYYY-MM-DDTHH:MM:SSZ — pendientes
 
 ## Usar los datos (sin instalar nada)
 
-Los datos ya están en este repo y se actualizan solos. Descarga directa:
+Los datos ya están en este repo. Descarga directa:
 
 ```bash
 # Todos los archivos de una vez
@@ -101,7 +160,7 @@ pip install -r requirements.txt
 
 ---
 
-## Uso
+## Referencia de comandos
 
 ### Modo resumen — totales nacionales
 
@@ -749,7 +808,7 @@ python -m src.onpe_scraper.enrich_geo --force
 
 ## Contribuciones
 
-Si ONPE modifica sus endpoints o encuentras datos incorrectos, **abre un issue o un PR**. La transparencia electoral es un esfuerzo colectivo.
+El proyecto está cerrado. Si encuentras errores en los datos históricos o quieres hacer fork para adaptar el scraper a futuras elecciones, eres bienvenido. La transparencia electoral es un esfuerzo colectivo.
 
 ---
 
