@@ -10,7 +10,7 @@
 > **El escrutinio alcanzó el 100 % de mesas contabilizadas.**
 > Este repositorio ya no recibirá más actualizaciones de datos.
 >
-> **Cierre:** `2026-06-29 22:11 (UTC+2)` · `2026-06-29T20:11Z`
+> **Cierre:** `2026-06-29 20:11 UTC` · `2026-06-29 15:11 (Lima, UTC−5)`
 >
 > Los datos en `output/` y `resumen/` son el registro definitivo final de la Segunda Vuelta Presidencial del Perú 2026.
 
