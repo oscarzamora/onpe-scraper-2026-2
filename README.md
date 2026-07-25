@@ -304,10 +304,24 @@ work/                            ← estado interno del scraper (no commitear)
   resumen_state.txt              ← estado incremental del resumen (full/delta)
   snapshot_YYYYMMDDTHHMMSSZ.json ← dump crudo de la API por cada corrida
 
+auditoria/                       ← auditoría histórica derivada de commits de datos
+  mesas_E_a_C.txt                ← mesas que estuvieron en E y luego pasaron a C (con timestamps de commit)
+  votos_E.txt                    ← snapshot de votos cuando cada mesa estaba en E
+
 acta/                            ← PDFs descargados de ONPE
   04/040100-1.pdf                ← acta 1 de la mesa 040100
   04/040100-2.pdf                ← acta 2 de la mesa 040100
 ```
+
+### Auditoría histórica E → C (basada en commits)
+
+La carpeta `auditoria/` se construye a partir del historial versionado de `output/mesas_data.txt` y
+`output/votos.txt`, para evidenciar con datos objetivos cómo mesas observadas (`E`) luego pasaron a
+contabilizadas (`C`).
+
+Las columnas `fecha_hora_E` y `fecha_hora_C` corresponden al timestamp del commit en GitHub donde se
+observa ese estado. Es una referencia temporal útil para análisis de cambio, pero puede no coincidir
+exactamente con el instante en que ONPE publicó cada actualización.
 
 ### Código que implementa esta capacidad
 
