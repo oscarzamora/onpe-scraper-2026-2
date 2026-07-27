@@ -9,6 +9,7 @@
 >
 > **El escrutinio alcanzó el 100 % de mesas contabilizadas.**
 > Este repositorio ya no recibirá más actualizaciones de datos.
+> Además, la ejecución quedó bloqueada por defecto para evitar nuevas llamadas HTTP al API.
 >
 > **Cierre:** `2026-06-29 20:11 UTC` · `2026-06-29 15:11 (Lima, UTC−5)`
 >

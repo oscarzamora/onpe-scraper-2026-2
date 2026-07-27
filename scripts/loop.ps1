@@ -40,6 +40,10 @@
 .PARAMETER SoloCiclos
     Número de ciclos a correr antes de salir. 0 = infinito (default).
 
+.PARAMETER HabilitarApi
+    Switch para permitir llamadas HTTP a la API de ONPE.
+    Por seguridad, el repo queda bloqueado por defecto.
+
 .EXAMPLE
     # Arranque básico (igual a lo que corre Copilot)
     .\scripts\loop.ps1
@@ -66,11 +70,16 @@ param(
     [switch] $Reconciliar              = $true,
     [int]    $MaxPaginasReconciliacion = 50,
     [int]    $CicloInicial             = 1,
-    [int]    $SoloCiclos               = 0
+    [int]    $SoloCiclos               = 0,
+    [switch] $HabilitarApi
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
+
+if (-not $HabilitarApi) {
+    throw "API bloqueada por configuracion del repositorio. Usa -HabilitarApi para ejecutar el loop."
+}
 
 # ── Directorio raíz del repo (el script vive en scripts/) ──────────────────────
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -88,6 +97,7 @@ if (Test-Path $VenvActivate) {
 $MesasArgs = @(
     "-m", "src.onpe_scraper.main",
     "--modo", "mesas",
+    "--habilitar-api",
     "--id-eleccion", $IdEleccion,
     "--tiempo-max", "9",
     "--max-workers", $MaxWorkers,
@@ -109,6 +119,7 @@ if ($Reconciliar) {
 $ResumenArgs = @(
     "-m", "src.onpe_scraper.main",
     "--modo", "resumen-geo",
+    "--habilitar-api",
     "--id-eleccion", $IdEleccion
 )
 

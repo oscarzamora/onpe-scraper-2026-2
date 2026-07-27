@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -111,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Carpeta destino para PDFs de actas (default: acta/).",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--habilitar-api",
+        action="store_true",
+        help="Permitir llamadas HTTP a la API de ONPE (bloqueadas por defecto).",
+    )
 
     # --- reconciliation args ---
     parser.add_argument(
@@ -676,6 +682,14 @@ def _run_once(client: OnpeClient, args: argparse.Namespace, output_dir: Path, wo
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    api_unlock_env = os.getenv("ONPE_HABILITAR_API", "").strip().lower()
+    api_enabled = bool(args.habilitar_api or api_unlock_env in {"1", "true", "yes", "on"})
+    if not api_enabled:
+        raise SystemExit(
+            "API bloqueada por configuracion del repositorio. "
+            "No se haran llamadas HTTP. Usa --habilitar-api o ONPE_HABILITAR_API=1 para habilitar."
+        )
 
     output_dir = Path(args.salida)
     output_dir.mkdir(parents=True, exist_ok=True)
